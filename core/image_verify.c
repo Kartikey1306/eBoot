@@ -12,6 +12,7 @@
 
 #include "eos_image.h"
 #include "eos_crypto_boot.h"
+#include "eos_keystore.h"
 #include "eos_hal.h"
 #include <string.h>
 
@@ -130,15 +131,21 @@ int eos_image_verify_signature(const eos_image_header_t *hdr)
 
     /* Phase 2: Ed25519 signature verification */
     if (hdr->sig_type == EOS_SIG_ED25519) {
-        /* Get public key from keystore */
-        extern int eos_keystore_get_compiled_key(const uint8_t **key, size_t *len);
+        /* Take the public key from the keystore rather than reaching for a
+         * symbol directly. Two reasons: ebldr_default_pubkey was never
+         * defined anywhere, so this did not link; and going through the
+         * keystore is what applies OTP provisioning, slot selection and
+         * revocation. A key that has been revoked must not verify anything,
+         * and only eos_keystore_get_active_key() enforces that. */
+        eos_keystore_t ks;
         const uint8_t *pub_key = NULL;
         size_t key_len = 0;
 
-        /* Try compiled-in key directly */
-        extern const uint8_t ebldr_default_pubkey[32];
-        pub_key = ebldr_default_pubkey;
-        key_len = 32;
+        if (eos_keystore_init(&ks) != EOS_OK)
+            return EOS_ERR_KEY;
+
+        if (eos_keystore_get_active_key(&ks, &pub_key, &key_len) != EOS_OK)
+            return EOS_ERR_KEY;
 
         /* Verify signature over the hash */
         int rc = eos_crypto_verify_signature(
