@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Build:** `boot_log.c` moved from `eboot_stage1` to `eboot_core`. `core/recovery.c`, `core/boot_policy.c` and `stage0/jump_stage1.c` all call `eos_boot_log_*`, but the implementation lived in `eboot_stage1`, which links *against* `eboot_core`. That circular dependency left `eboot_core` unable to link on its own: `test_recovery` failed to build, and the `ebldr_stage0` firmware target — which links `eboot_core` without `eboot_stage1` — could not link for any board. `boot_log.c` has no stage-1 dependencies; it only uses `eos_types.h` and `eos_hal.h`.
+
 ### Security
 - **`recovery.c`:** UART recovery writes now reject offsets and lengths that leave the target slot, including wrap of `base + offset`.
 - **`image_verify.c`:** `eos_image_parse_header` rejects a `load_addr + image_size` that overflows `uint32_t` instead of wrapping the runtime end address.
