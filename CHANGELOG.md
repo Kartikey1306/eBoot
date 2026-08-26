@@ -5,6 +5,11 @@
 ### Security
 - **`recovery.c`:** UART recovery writes now reject offsets and lengths that leave the target slot, including wrap of `base + offset`.
 - **`image_verify.c`:** `eos_image_parse_header` rejects a `load_addr + image_size` that overflows `uint32_t` instead of wrapping the runtime end address.
+- **`image_verify.c`:** The CRC32 integrity path now fails closed on a flash read error. `eos_crc32()` returned `0` when `eos_hal_flash_read()` failed, which is indistinguishable from a region that genuinely hashes to `0`, so an image whose payload could not be read passed `eos_image_verify_integrity()` when the stored CRC was `0`. The stored CRC lives in the unauthenticated header, so setting it to `0` is trivial. The SHA-256 path already propagated the read error; the two now behave the same.
+- **`image_verify.c`:** `eos_image_verify_integrity` rejects a zero `image_size`, and an `addr + hdr_size` that wraps `uint32_t`, instead of computing a payload address that is not the payload.
+
+### Added
+- **`eos_crc32_checked()`** — CRC32 over a flash region that reports read failures through its return value. `eos_crc32()` is retained for API compatibility and documented as unsuitable for verification decisions.
 
 ## [3.0.2] - 2026-05-27
 

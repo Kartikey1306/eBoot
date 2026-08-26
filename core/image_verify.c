@@ -30,16 +30,22 @@ static uint32_t crc32_byte(uint32_t crc, uint8_t byte)
     return crc;
 }
 
-uint32_t eos_crc32(uint32_t addr, size_t len)
+int eos_crc32_checked(uint32_t addr, size_t len, uint32_t *out_crc)
 {
+    if (!out_crc)
+        return EOS_ERR_INVALID;
+
     uint32_t crc = 0xFFFFFFFF;
     uint8_t buf[256];
 
     while (len > 0) {
         size_t chunk = (len > sizeof(buf)) ? sizeof(buf) : len;
 
+        /* A flash read that fails is reported, never folded into the result.
+         * Returning a CRC value here would be indistinguishable from having
+         * genuinely computed one. */
         if (eos_hal_flash_read(addr, buf, chunk) != EOS_OK)
-            return 0;
+            return EOS_ERR_FLASH;
 
         for (size_t i = 0; i < chunk; i++) {
             crc = crc32_byte(crc, buf[i]);
@@ -49,7 +55,18 @@ uint32_t eos_crc32(uint32_t addr, size_t len)
         len -= chunk;
     }
 
-    return ~crc;
+    *out_crc = ~crc;
+    return EOS_OK;
+}
+
+uint32_t eos_crc32(uint32_t addr, size_t len)
+{
+    /* Retained for API compatibility. It cannot report a flash failure, so it
+     * must not be used to decide whether an image is intact — see the note in
+     * eos_image.h. Verification paths use eos_crc32_checked(). */
+    uint32_t crc = 0;
+    (void)eos_crc32_checked(addr, len, &crc);
+    return crc;
 }
 
 int eos_image_parse_header(uint32_t addr, eos_image_header_t *out)
@@ -90,6 +107,10 @@ int eos_image_verify_integrity(const eos_image_header_t *hdr, uint32_t addr)
     if (!hdr)
         return EOS_ERR_INVALID;
 
+    /* The payload address must not wrap past the end of the address space. */
+    if (hdr->hdr_size > UINT32_MAX - addr)
+        return EOS_ERR_INVALID;
+
     uint32_t payload_addr = addr + hdr->hdr_size;
 
     /* SHA-256 verification when flag is set */
@@ -102,8 +123,19 @@ int eos_image_verify_integrity(const eos_image_header_t *hdr, uint32_t addr)
         return EOS_OK;
     }
 
-    /* CRC32 fallback */
-    uint32_t computed_crc = eos_crc32(payload_addr, hdr->image_size);
+    /* CRC32 fallback.
+     *
+     * eos_crypto_verify_image() above already fails closed on a flash error;
+     * this path must behave the same way. An image whose bytes could not be
+     * read has not been verified, and reporting success for it would let a
+     * corrupt or unreadable slot boot. */
+    if (hdr->image_size == 0)
+        return EOS_ERR_INVALID;
+
+    uint32_t computed_crc = 0;
+    int rc = eos_crc32_checked(payload_addr, hdr->image_size, &computed_crc);
+    if (rc != EOS_OK)
+        return EOS_ERR_FLASH;
 
     uint32_t stored_crc;
     memcpy(&stored_crc, hdr->hash, sizeof(stored_crc));
