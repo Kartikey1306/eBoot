@@ -156,6 +156,7 @@ int stage0_verify_stage1(void) {
 | Stage-0 → Stage-1 | Stage-1 integrity check fails | `eos_image_verify_integrity()` returns `EOS_ERR_CRC` | Enter UART recovery mode |
 | Stage-0 → Stage-1 | Stage-1 payload unreadable | `eos_image_verify_integrity()` returns `EOS_ERR_FLASH` | Enter UART recovery mode |
 | Stage-0 → Stage-1 | Stage-1 signature invalid | `eos_image_verify_signature()` returns `EOS_ERR_SIGNATURE` | Enter UART recovery mode |
+| Stage-0 → Stage-1 | Stage-1 header edited after signing | `eos_image_verify_signature()` returns `EOS_ERR_SIGNATURE` (the signature covers the header prefix) | Enter UART recovery mode |
 | Stage-0 → Stage-1 | Stage-1 version too old | `eos_image_check_version()` returns `EOS_ERR_VERSION` | Enter UART recovery mode |
 | Stage-1 → App | Active slot image invalid | Integrity/signature check fails | Try alternate slot (B→A or A→B) |
 | Stage-1 → App | Both slots invalid | Both fail verification | Enter UART recovery mode |

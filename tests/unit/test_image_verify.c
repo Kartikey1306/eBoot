@@ -290,6 +290,118 @@ TEST(test_verify_integrity_null_header)
     ASSERT(eos_image_verify_integrity(NULL, 0x1000) == EOS_ERR_INVALID);
 }
 
+
+/*
+ * The signature must cover every field the bootloader acts on, not just the
+ * payload hash. This pins the boundary: each security-relevant field lies
+ * wholly inside the signed prefix, and signature[] lies wholly outside it.
+ *
+ * If someone reorders the struct or adds a field after signature[], this fails
+ * — which matters because the signing tools address these by absolute offset.
+ */
+TEST(test_signed_region_covers_all_metadata)
+{
+    ASSERT(EOS_IMG_SIGNED_LEN == 92);
+    ASSERT(EOS_IMG_SIGNED_LEN == offsetof(eos_image_header_t, signature));
+
+    /* Everything the bootloader trusts is inside the signed prefix. */
+    #define COVERED(field) \
+        ASSERT(offsetof(eos_image_header_t, field) + \
+               sizeof(((eos_image_header_t *)0)->field) <= EOS_IMG_SIGNED_LEN)
+
+    COVERED(magic);
+    COVERED(hdr_version);
+    COVERED(hdr_size);
+    COVERED(image_size);
+    COVERED(load_addr);
+    COVERED(entry_addr);
+    COVERED(image_version);
+    COVERED(flags);
+    COVERED(hash);
+    COVERED(sig_type);
+    COVERED(sig_len);
+    COVERED(reserved);
+    #undef COVERED
+
+    /* The signature itself is the only thing outside it. */
+    ASSERT(offsetof(eos_image_header_t, signature) >= EOS_IMG_SIGNED_LEN);
+    ASSERT(sizeof(eos_image_header_t) ==
+           EOS_IMG_SIGNED_LEN + EOS_SIG_MAX_SIZE);
+}
+
+/*
+ * Regression: clearing EOS_IMG_FLAG_HASH_SHA256 used to downgrade integrity
+ * checking from SHA-256 to forgeable CRC32 without disturbing the signature,
+ * because flags sat outside the signed region. flags is now covered, so the
+ * downgrade invalidates the signature.
+ *
+ * This asserts the structural property; the end-to-end demonstration lives in
+ * tests/unit/test_sign_image.py, which signs a real image, flips the flag, and
+ * shows verification fail.
+ */
+TEST(test_flags_are_inside_the_signed_region)
+{
+    size_t flags_end = offsetof(eos_image_header_t, flags) +
+                       sizeof(((eos_image_header_t *)0)->flags);
+    ASSERT(flags_end <= EOS_IMG_SIGNED_LEN);
+
+    /* Same for the two fields that decide where the image runs. */
+    ASSERT(offsetof(eos_image_header_t, load_addr) + 4 <= EOS_IMG_SIGNED_LEN);
+    ASSERT(offsetof(eos_image_header_t, entry_addr) + 4 <= EOS_IMG_SIGNED_LEN);
+}
+
+/* An unsigned or weakly-"signed" image must never satisfy the signature check. */
+TEST(test_unsigned_signature_types_are_rejected)
+{
+    eos_image_header_t hdr;
+    fill_valid_header(&hdr);
+    hdr.sig_len = EOS_SIG_MAX_SIZE;
+
+    hdr.sig_type = EOS_SIG_NONE;
+    ASSERT(eos_image_verify_signature(&hdr) == EOS_ERR_SIGNATURE);
+
+    hdr.sig_type = EOS_SIG_CRC32;
+    ASSERT(eos_image_verify_signature(&hdr) == EOS_ERR_SIGNATURE);
+
+    hdr.sig_type = EOS_SIG_SHA256;
+    ASSERT(eos_image_verify_signature(&hdr) == EOS_ERR_SIGNATURE);
+
+    /* Ed25519 with a wrong length is rejected before any key is consulted. */
+    hdr.sig_type = EOS_SIG_ED25519;
+    hdr.sig_len = 32;
+    ASSERT(eos_image_verify_signature(&hdr) == EOS_ERR_SIGNATURE);
+
+    ASSERT(eos_image_verify_signature(NULL) == EOS_ERR_INVALID);
+}
+
+/* Header format versions this build does not understand must be rejected. */
+TEST(test_header_version_is_validated)
+{
+    eos_image_header_t hdr, out;
+
+    fill_valid_header(&hdr);
+    hdr.hdr_version = 0;
+    write_header(0x1000, &hdr);
+    ASSERT(eos_image_parse_header(0x1000, &out) == EOS_ERR_INVALID);
+
+    fill_valid_header(&hdr);
+    hdr.hdr_version = EOS_IMAGE_HDR_VERSION + 1;
+    write_header(0x1000, &hdr);
+    ASSERT(eos_image_parse_header(0x1000, &out) == EOS_ERR_INVALID);
+
+    /* v1 still parses — it is a real format — but its signature covered
+       hash[] alone and will not verify under v2. */
+    fill_valid_header(&hdr);
+    hdr.hdr_version = 1;
+    write_header(0x1000, &hdr);
+    ASSERT(eos_image_parse_header(0x1000, &out) == EOS_OK);
+
+    fill_valid_header(&hdr);
+    write_header(0x1000, &hdr);
+    ASSERT(eos_image_parse_header(0x1000, &out) == EOS_OK);
+    ASSERT(out.hdr_version == EOS_IMAGE_HDR_VERSION);
+}
+
 int main(void)
 {
     printf("=== eBootloader: Image Header Parse Tests ===\n\n");
@@ -305,7 +417,11 @@ int main(void)
     run_test_zero_length_image_is_rejected();
     run_test_payload_address_overflow_is_rejected();
     run_test_verify_integrity_null_header();
-    tests_run = 12;
+    run_test_signed_region_covers_all_metadata();
+    run_test_flags_are_inside_the_signed_region();
+    run_test_unsigned_signature_types_are_rejected();
+    run_test_header_version_is_validated();
+    tests_run = 16;
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
 }

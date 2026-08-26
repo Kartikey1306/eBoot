@@ -81,6 +81,13 @@ int eos_image_parse_header(uint32_t addr, eos_image_header_t *out)
     if (out->magic != EOS_IMG_MAGIC)
         return EOS_ERR_NO_IMAGE;
 
+    /* Reject a header format this build does not understand. v1 signed the
+     * payload hash alone; v2 signs the whole header prefix. A v1 image is
+     * still parsed, but its signature will not verify under v2 — it has to be
+     * re-signed. */
+    if (out->hdr_version == 0 || out->hdr_version > EOS_IMAGE_HDR_VERSION)
+        return EOS_ERR_INVALID;
+
     if (out->hdr_size < sizeof(eos_image_header_t) || out->hdr_size > 4096)
         return EOS_ERR_INVALID;
 
@@ -181,15 +188,23 @@ int eos_image_verify_signature(const eos_image_header_t *hdr)
         if (eos_keystore_get_active_key(&ks, &pub_key, &key_len) != EOS_OK)
             return EOS_ERR_KEY;
 
-        /* Verify signature over the hash */
+        /* Verify the signature over the header prefix, not over hash[] alone.
+         *
+         * hash[] covers the payload, but it is only 32 of the header's bytes.
+         * Signing just those left image_size, load_addr, entry_addr and flags
+         * unauthenticated: an attacker could keep a legitimately signed
+         * image's signature and still relocate it, move its entry point, or
+         * clear EOS_IMG_FLAG_HASH_SHA256 to downgrade eos_image_verify_integrity()
+         * from SHA-256 to forgeable CRC32. hash[] is inside the prefix, so the
+         * payload stays covered. */
         int rc = eos_crypto_verify_signature(
-            hdr->hash, EOS_HASH_SIZE,
+            (const uint8_t *)hdr, EOS_IMG_SIGNED_LEN,
             hdr->signature, hdr->sig_len,
             pub_key, key_len);
 
         /* Double-check for fault injection resistance */
         int rc2 = eos_crypto_verify_signature(
-            hdr->hash, EOS_HASH_SIZE,
+            (const uint8_t *)hdr, EOS_IMG_SIGNED_LEN,
             hdr->signature, hdr->sig_len,
             pub_key, key_len);
 
