@@ -124,7 +124,8 @@ External boundaries:
 
 | ID | STRIDE | Threat | Likelihood | Impact | Risk | Mitigation | Status |
 |---|---|---|---|---|---|---|---|
-| T-301 | Tampering | Attacker modifies application firmware in flash | Medium | Critical | High | CRC32 integrity check (Phase 1); SHA-256 + Ed25519 signature (Phase 2) | Partial |
+| T-301 | Tampering | Attacker modifies application firmware in flash | Medium | Critical | High | CRC32 integrity check (Phase 1); SHA-256 + Ed25519 signature over the full header prefix (Phase 2) | Partial |
+| T-303 | Tampering | Attacker edits image header metadata (entry point, load address, integrity flags) while keeping a valid signature | Medium | Critical | High | Signature covers `EOS_IMG_SIGNED_LEN` bytes of the header, not `hash[]` alone (image header v2) | Mitigated |
 | T-302 | Spoofing | Rollback to older firmware version with known vulnerabilities | Medium | High | High | Version comparison via `eos_image_check_version()`; monotonic counter (Phase 2) | Planned |
 | T-303 | Information Disclosure | Unencrypted firmware reveals intellectual property | Medium | Medium | Medium | AES-256-GCM payload encryption (Phase 3); `EOS_IMG_FLAG_ENCRYPTED` | Planned |
 | T-304 | Denial of Service | Both slots contain invalid images, device is bricked | Low | Critical | Medium | Recovery image in dedicated partition (16 KB); UART recovery protocol | Mitigated |
