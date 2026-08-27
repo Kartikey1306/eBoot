@@ -160,76 +160,134 @@ TEST(test_parse_load_plus_size_overflow)
     ASSERT(eos_image_parse_header(0x1000, &out) == EOS_ERR_INVALID);
 }
 
-/* Independent CRC32 reference, so the positive control does not simply
- * round-trip the implementation under test. */
-static uint32_t ref_crc32(const uint8_t *data, size_t len)
+
+/* Independent CRC32 (IEEE, reflected, init 0xFFFFFFFF, final XOR) so these
+   tests do not simply restate whatever image_verify.c happens to compute. */
+static uint32_t ref_crc32(const uint8_t *p, size_t len)
 {
     uint32_t crc = 0xFFFFFFFFu;
     for (size_t i = 0; i < len; i++) {
-        crc ^= data[i];
+        crc ^= p[i];
         for (int b = 0; b < 8; b++)
             crc = (crc & 1u) ? ((crc >> 1) ^ 0xEDB88320u) : (crc >> 1);
     }
     return ~crc;
 }
 
-TEST(test_integrity_crc_read_failure_is_not_success)
+TEST(test_crc_image_with_matching_crc_verifies)
 {
-    /* eos_crc32() returned 0 when the flash read failed, and 0 is also a
-     * legal CRC value. A header whose stored CRC is zero and whose payload
-     * runs past the end of the device therefore verified clean without a
-     * single payload byte being read. */
-    eos_image_header_t hdr, out;
-    fill_valid_header(&hdr);
-    hdr.flags = 0;                      /* take the CRC32 path, not SHA-256 */
-    memset(hdr.hash, 0, sizeof(hdr.hash));   /* stored_crc == 0 */
-    hdr.image_size = 0x10000;           /* payload runs off the 64 KiB device */
-    write_header(0x1000, &hdr);
-
-    /* The header itself is well-formed — this is reachable in normal flow. */
-    ASSERT(eos_image_parse_header(0x1000, &out) == EOS_OK);
-
-    ASSERT(eos_image_verify_integrity(&out, 0x1000) != EOS_OK);
-}
-
-TEST(test_integrity_crc_matching_payload_accepted)
-{
-    /* Positive control: the fix must not reject images that are actually
-     * intact. */
     eos_image_header_t hdr;
     fill_valid_header(&hdr);
-    hdr.flags = 0;
-    hdr.image_size = 0x100;
+    hdr.flags = 0;                      /* no SHA256 flag -> CRC32 path */
+    hdr.image_size = 0x200;
+    hdr.load_addr = 0;
+    hdr.entry_addr = 0;
 
-    uint32_t payload_addr = 0x1000 + hdr.hdr_size;
+    uint32_t addr = 0x1000;
+    uint32_t payload = addr + hdr.hdr_size;
     for (uint32_t i = 0; i < hdr.image_size; i++)
-        sim_flash[payload_addr + i] = (uint8_t)(i & 0xFF);
+        sim_flash[payload + i] = (uint8_t)(i * 7u + 3u);
 
-    uint32_t expected = ref_crc32(&sim_flash[payload_addr], hdr.image_size);
-    memset(hdr.hash, 0, sizeof(hdr.hash));
-    memcpy(hdr.hash, &expected, sizeof(expected));
-    write_header(0x1000, &hdr);
+    uint32_t expect = ref_crc32(&sim_flash[payload], hdr.image_size);
+    memcpy(hdr.hash, &expect, sizeof(expect));
 
-    ASSERT(eos_image_verify_integrity(&hdr, 0x1000) == EOS_OK);
+    ASSERT(eos_image_verify_integrity(&hdr, addr) == EOS_OK);
 }
 
-TEST(test_integrity_crc_mismatch_rejected)
+TEST(test_crc_image_with_wrong_crc_is_rejected)
 {
     eos_image_header_t hdr;
     fill_valid_header(&hdr);
     hdr.flags = 0;
-    hdr.image_size = 0x100;
+    hdr.image_size = 0x200;
+    hdr.load_addr = 0;
+    hdr.entry_addr = 0;
 
-    uint32_t payload_addr = 0x1000 + hdr.hdr_size;
+    uint32_t addr = 0x1000;
+    uint32_t payload = addr + hdr.hdr_size;
     for (uint32_t i = 0; i < hdr.image_size; i++)
-        sim_flash[payload_addr + i] = (uint8_t)(i & 0xFF);
+        sim_flash[payload + i] = (uint8_t)i;
 
-    uint32_t wrong = ref_crc32(&sim_flash[payload_addr], hdr.image_size) ^ 0xFFFFu;
-    memset(hdr.hash, 0, sizeof(hdr.hash));
+    uint32_t wrong = ref_crc32(&sim_flash[payload], hdr.image_size) ^ 0xFFFFu;
     memcpy(hdr.hash, &wrong, sizeof(wrong));
-    write_header(0x1000, &hdr);
 
-    ASSERT(eos_image_verify_integrity(&hdr, 0x1000) == EOS_ERR_CRC);
+    ASSERT(eos_image_verify_integrity(&hdr, addr) == EOS_ERR_CRC);
+}
+
+/*
+ * Regression: the CRC32 path used to fail OPEN.
+ *
+ * eos_crc32() returned 0 when a flash read failed, which is indistinguishable
+ * from a region that genuinely hashes to 0. An image whose payload could not be
+ * read, with a stored CRC of 0, therefore passed the integrity check — and the
+ * stored CRC is part of the unauthenticated header, so it is trivially set.
+ *
+ * The SHA-256 path has always propagated the read error; this asserts the CRC
+ * path now behaves the same way.
+ */
+TEST(test_crc_unreadable_payload_fails_closed)
+{
+    eos_image_header_t hdr;
+    fill_valid_header(&hdr);
+    hdr.flags = 0;
+    hdr.load_addr = 0;
+    hdr.entry_addr = 0;
+
+    /* Place the image so its payload runs past the end of simulated flash;
+       sim_flash_read() then fails partway through. */
+    uint32_t addr = SIM_FLASH_SIZE - 0x400;
+    hdr.image_size = 0x8000;
+    memset(hdr.hash, 0, sizeof(hdr.hash));      /* stored CRC == 0 */
+
+    /* Precondition: the payload really is unreadable. */
+    uint8_t probe[4];
+    ASSERT(eos_hal_flash_read(addr + hdr.hdr_size + hdr.image_size - 4,
+                              probe, sizeof(probe)) != EOS_OK);
+
+    ASSERT(eos_image_verify_integrity(&hdr, addr) != EOS_OK);
+}
+
+TEST(test_crc32_checked_reports_flash_failure)
+{
+    uint32_t crc = 0xA5A5A5A5u;
+    ASSERT(eos_crc32_checked(SIM_FLASH_SIZE - 4, 64, &crc) == EOS_ERR_FLASH);
+    ASSERT(crc == 0xA5A5A5A5u);   /* untouched on failure */
+
+    ASSERT(eos_crc32_checked(0x1000, 16, NULL) == EOS_ERR_INVALID);
+
+    uint32_t ok = 0;
+    ASSERT(eos_crc32_checked(0x1000, 16, &ok) == EOS_OK);
+    ASSERT(ok == ref_crc32(&sim_flash[0x1000], 16));
+}
+
+TEST(test_zero_length_image_is_rejected)
+{
+    eos_image_header_t hdr;
+    fill_valid_header(&hdr);
+    hdr.flags = 0;
+    hdr.load_addr = 0;
+    hdr.entry_addr = 0;
+    hdr.image_size = 0;
+    memset(hdr.hash, 0, sizeof(hdr.hash));
+
+    ASSERT(eos_image_verify_integrity(&hdr, 0x1000) == EOS_ERR_INVALID);
+}
+
+TEST(test_payload_address_overflow_is_rejected)
+{
+    eos_image_header_t hdr;
+    fill_valid_header(&hdr);
+    hdr.flags = 0;
+    hdr.load_addr = 0;
+    hdr.entry_addr = 0;
+
+    /* addr + hdr_size would wrap past the end of the address space. */
+    ASSERT(eos_image_verify_integrity(&hdr, UINT32_MAX - 2u) == EOS_ERR_INVALID);
+}
+
+TEST(test_verify_integrity_null_header)
+{
+    ASSERT(eos_image_verify_integrity(NULL, 0x1000) == EOS_ERR_INVALID);
 }
 
 int main(void)
@@ -240,10 +298,14 @@ int main(void)
     run_test_parse_bad_magic();
     run_test_parse_entry_outside_image();
     run_test_parse_load_plus_size_overflow();
-    run_test_integrity_crc_read_failure_is_not_success();
-    run_test_integrity_crc_matching_payload_accepted();
-    run_test_integrity_crc_mismatch_rejected();
-    tests_run = 8;
+    run_test_crc_image_with_matching_crc_verifies();
+    run_test_crc_image_with_wrong_crc_is_rejected();
+    run_test_crc_unreadable_payload_fails_closed();
+    run_test_crc32_checked_reports_flash_failure();
+    run_test_zero_length_image_is_rejected();
+    run_test_payload_address_overflow_is_rejected();
+    run_test_verify_integrity_null_header();
+    tests_run = 12;
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
 }
