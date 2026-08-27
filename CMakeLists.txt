@@ -84,6 +84,7 @@ add_library(eboot_core STATIC
     core/image_verify.c
     core/slot_manager.c
     core/boot_policy.c
+    core/boot_log.c
     core/recovery.c
     core/fw_services.c
     core/fw_update.c
