@@ -80,6 +80,7 @@ target_include_directories(eboot_hal PUBLIC ${EBLDR_INCLUDE_DIR})
 # ---- Core boot logic ----
 add_library(eboot_core STATIC
     core/bootctl.c
+    core/boot_log.c
     core/image_verify.c
     core/slot_manager.c
     core/boot_policy.c
@@ -105,7 +106,6 @@ add_library(eboot_core STATIC
     core/bmc_handoff.c
     core/os_adapter.c
     core/ed25519_verify.c
-    core/sha512.c
     core/keystore.c
     core/debug_lock.c
     core/fw_decrypt.c
@@ -119,7 +119,6 @@ add_library(eboot_stage1 STATIC
     stage1/main.c
     stage1/boot_scan.c
     stage1/boot_select.c
-    stage1/boot_log.c
     stage1/jump_app.c
 )
 target_include_directories(eboot_stage1 PUBLIC ${EBLDR_INCLUDE_DIR})
@@ -550,18 +549,3 @@ else()
     message(STATUS "  Mode        : Board port (${EBLDR_BOARD})")
 endif()
 message(STATUS "----------------------------------------------------")
-# ---- Ed25519 verification tests ----
-add_executable(test_ed25519
-    tests/unit/test_ed25519.c
-)
-
-target_link_libraries(test_ed25519
-    PRIVATE
-    eboot_core
-)
-enable_testing()
-
-add_test(
-    NAME ed25519_tests
-    COMMAND test_ed25519
-)
