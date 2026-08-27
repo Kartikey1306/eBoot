@@ -8,6 +8,7 @@
  */
 
 #include "eos_image.h"
+#include "eos_image_tlv.h"
 #include "eos_hal.h"
 #include <stdio.h>
 #include <string.h>
