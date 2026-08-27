@@ -53,9 +53,9 @@ int eos_image_parse_header(uint32_t addr, eos_image_header_t *out);
 /**
  * @brief Verify image integrity using CRC32 or hash.
  * @param hdr   Parsed image header.
- * @param addr  Flash address of the image payload (after header).
- * @return EOS_OK if integrity check passes, EOS_ERR_CRC on hash or CRC
- *         mismatch, EOS_ERR_FLASH if the payload could not be read.
+ * @param addr  Flash address of the image (header base). Payload starts after
+ *              hdr_size and an optional TLV area, matching eos_sign.py.
+ * @return EOS_OK if integrity check passes, EOS_ERR_CRC on failure.
  */
 int eos_image_verify_integrity(const eos_image_header_t *hdr, uint32_t addr);
 
