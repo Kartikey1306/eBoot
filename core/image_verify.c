@@ -11,6 +11,7 @@
  */
 
 #include "eos_image.h"
+#include "eos_image_tlv.h"
 #include "eos_crypto_boot.h"
 #include "eos_keystore.h"
 #include "eos_hal.h"
@@ -30,16 +31,22 @@ static uint32_t crc32_byte(uint32_t crc, uint8_t byte)
     return crc;
 }
 
-uint32_t eos_crc32(uint32_t addr, size_t len)
+int eos_crc32_checked(uint32_t addr, size_t len, uint32_t *out_crc)
 {
+    if (!out_crc)
+        return EOS_ERR_INVALID;
+
     uint32_t crc = 0xFFFFFFFF;
     uint8_t buf[256];
 
     while (len > 0) {
         size_t chunk = (len > sizeof(buf)) ? sizeof(buf) : len;
 
+        /* A flash read that fails is reported, never folded into the result.
+         * Returning a CRC value here would be indistinguishable from having
+         * genuinely computed one. */
         if (eos_hal_flash_read(addr, buf, chunk) != EOS_OK)
-            return 0;
+            return EOS_ERR_FLASH;
 
         for (size_t i = 0; i < chunk; i++) {
             crc = crc32_byte(crc, buf[i]);
@@ -49,7 +56,18 @@ uint32_t eos_crc32(uint32_t addr, size_t len)
         len -= chunk;
     }
 
-    return ~crc;
+    *out_crc = ~crc;
+    return EOS_OK;
+}
+
+uint32_t eos_crc32(uint32_t addr, size_t len)
+{
+    /* Retained for API compatibility. It cannot report a flash failure, so it
+     * must not be used to decide whether an image is intact — see the note in
+     * eos_image.h. Verification paths use eos_crc32_checked(). */
+    uint32_t crc = 0;
+    (void)eos_crc32_checked(addr, len, &crc);
+    return crc;
 }
 
 int eos_image_parse_header(uint32_t addr, eos_image_header_t *out)
@@ -85,12 +103,45 @@ int eos_image_parse_header(uint32_t addr, eos_image_header_t *out)
     return EOS_OK;
 }
 
+/*
+ * Images produced by tools/eos_sign.py are laid out as [header][TLV][payload].
+ * The stored hash/CRC covers the payload only. Skip a well-formed TLV area;
+ * a corrupt TLV (valid magic, illegal length) fails closed.
+ */
+static int image_payload_addr(uint32_t base, const eos_image_header_t *hdr,
+                              uint32_t *out)
+{
+    uint32_t tlv_addr;
+    eos_tlv_ctx_t ctx;
+    int rc;
+
+    if (hdr->hdr_size > UINT32_MAX - base)
+        return EOS_ERR_INVALID;
+
+    tlv_addr = base + hdr->hdr_size;
+    rc = eos_tlv_parse(&ctx, tlv_addr);
+    if (rc == EOS_OK) {
+        if (ctx.total_len > UINT32_MAX - tlv_addr)
+            return EOS_ERR_INVALID;
+        *out = tlv_addr + ctx.total_len;
+        return EOS_OK;
+    }
+    if (rc == EOS_ERR_NOT_FOUND) {
+        *out = tlv_addr;
+        return EOS_OK;
+    }
+    return rc;
+}
+
 int eos_image_verify_integrity(const eos_image_header_t *hdr, uint32_t addr)
 {
     if (!hdr)
         return EOS_ERR_INVALID;
 
-    uint32_t payload_addr = addr + hdr->hdr_size;
+    uint32_t payload_addr;
+    int prc = image_payload_addr(addr, hdr, &payload_addr);
+    if (prc != EOS_OK)
+        return prc;
 
     /* SHA-256 verification when flag is set */
     if (hdr->flags & EOS_IMG_FLAG_HASH_SHA256) {
