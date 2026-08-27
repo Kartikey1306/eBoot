@@ -16,6 +16,6 @@ def run_tests():
     result = subprocess.run(command, capture_output=False)
     return result.returncode
 
-  
+
 if __name__ == "__main__":
     raise SystemExit(run_tests())
