@@ -11,6 +11,7 @@
  */
 
 #include "eos_image.h"
+#include "eos_image_tlv.h"
 #include "eos_crypto_boot.h"
 #include "eos_keystore.h"
 #include "eos_hal.h"
