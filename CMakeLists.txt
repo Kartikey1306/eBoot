@@ -328,6 +328,36 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         set(_LD_STAGE0 "${CMAKE_CURRENT_SOURCE_DIR}/boards/${EBLDR_BOARD}/${EBLDR_BOARD}_stage0.ld")
         set(_LD_STAGE1 "${CMAKE_CURRENT_SOURCE_DIR}/boards/${EBLDR_BOARD}/${EBLDR_BOARD}_stage1.ld")
 
+        # ---- Stage-1 hash, embedded into stage-0 -------------------------
+        # stage0/jump_stage1.c hashes stage-1 in flash and compares against
+        # stage1_expected_hash / stage1_expected_size before jumping. Nothing
+        # defined those symbols, so every board build failed to link with
+        # EBLDR_VERIFY_STAGE1 (default ON) -- the first link of the secure boot
+        # chain was never actually built. tools/embed_stage1_hash.py generates
+        # them from the stage-1 binary; it has to run after eboot_firmware is
+        # linked and objcopy'd, which is why the dependency is on that target.
+        set(_STAGE1_HASH_C "${CMAKE_CURRENT_BINARY_DIR}/stage1_hash.c")
+        if(EBLDR_VERIFY_STAGE1 AND EXISTS "${_LD_STAGE1}")
+            find_package(Python3 COMPONENTS Interpreter REQUIRED)
+            add_custom_command(
+                OUTPUT "${_STAGE1_HASH_C}"
+                COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_stage1_hash.py"
+                        --input "${CMAKE_CURRENT_BINARY_DIR}/eboot_firmware.bin"
+                        --output "${_STAGE1_HASH_C}"
+                DEPENDS eboot_firmware
+                        "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_stage1_hash.py"
+                COMMENT "Embedding stage-1 SHA-256 into stage-0"
+                VERBATIM
+            )
+        elseif(EBLDR_VERIFY_STAGE1)
+            message(FATAL_ERROR
+                "EBLDR_VERIFY_STAGE1 is ON but board ${EBLDR_BOARD} has no "
+                "stage-1 linker script, so there is no stage-1 image to hash. "
+                "Configure with -DEBLDR_VERIFY_STAGE1=OFF to build stage-0 "
+                "without the integrity check.")
+        endif()
+
         if(EXISTS "${_LD_STAGE0}")
             add_executable(ebldr_stage0
                 stage0/reset_entry.c
@@ -335,6 +365,7 @@ if(NOT EBLDR_BOARD STREQUAL "none")
                 stage0/watchdog.c
                 stage0/recovery_entry.c
                 stage0/jump_stage1.c
+                $<$<BOOL:${EBLDR_VERIFY_STAGE1}>:${_STAGE1_HASH_C}>
             )
             target_include_directories(ebldr_stage0 PRIVATE
                 ${EBLDR_INCLUDE_DIR}
