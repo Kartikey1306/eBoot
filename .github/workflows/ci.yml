@@ -78,8 +78,9 @@ jobs:
         run: |
           cmake -B build/arm -G Ninja \
             -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/arm-cortex-m4.cmake \
-            -DBUILD_TESTS=OFF
+            -DCMAKE_TOOLCHAIN_FILE=toolchains/arm-none-eabi.cmake \
+            -DEBLDR_BOARD=stm32f4 \
+            -DEBLDR_BUILD_TESTS=OFF
 
       - name: Build (ARM)
         run: cmake --build build/arm --parallel $(nproc)
