@@ -26,62 +26,89 @@
 #define SLOT_B_ADDR 0x30000u
 #define SLOT_SIZE   0x10000u
 
-static int parse_result[2];
-static int integrity_result[2];
-static int signature_result[2];
-static uint32_t slot_version[2];
-static int erase_result;
+/* ---- Simulated flash / board ops ----
+ *
+ * Large enough to hold both slots (SLOT_B_ADDR + SLOT_SIZE) plus the low
+ * bootctl/backup/log region every other test file reserves below 0x4000. */
+#define SIM_FLASH_SIZE  (SLOT_B_ADDR + SLOT_SIZE)
+static uint8_t sim_flash[SIM_FLASH_SIZE];
+
+/* ---- Observed/scripted flash erase behaviour (read by sim_flash_erase
+ * below, scripted/checked by the erase tests further down) ---- */
+static int      erase_result;
 static uint32_t erased_addr;
-static size_t erased_size;
-static int tests_passed;
+static size_t   erased_size;
 
-#define ASSERT(condition)                                                     \
-    do {                                                                      \
-        if (!(condition)) {                                                   \
-            fprintf(stderr, "[FAIL] %s:%d: %s\n",                          \
-                    __FILE__, __LINE__, #condition);                          \
-            exit(1);                                                          \
-        }                                                                     \
-    } while (0)
-
-#define RUN(test)                                                             \
-    do {                                                                      \
-        reset_fixture();                                                      \
-        test();                                                               \
-        tests_passed++;                                                       \
-        printf("[PASS] %s\n", #test);                                       \
-    } while (0)
-
-static int slot_index(uint32_t addr)
+static int sim_flash_read(uint32_t addr, void *buf, size_t len)
 {
-    if (addr == SLOT_A_ADDR) return EOS_SLOT_A;
-    if (addr == SLOT_B_ADDR) return EOS_SLOT_B;
-    return -1;
+    if (addr + len > SIM_FLASH_SIZE) return EOS_ERR_FLASH;
+    memcpy(buf, &sim_flash[addr], len);
+    return EOS_OK;
 }
 
-static void reset_fixture(void)
+static int sim_flash_write(uint32_t addr, const void *buf, size_t len)
 {
-    for (int i = 0; i < 2; i++) {
-        parse_result[i] = EOS_ERR_NO_IMAGE;
-        integrity_result[i] = EOS_OK;
-        signature_result[i] = EOS_OK;
-        slot_version[i] = 0;
-    }
-    erase_result = EOS_OK;
-    erased_addr = 0;
-    erased_size = 0;
+    if (addr + len > SIM_FLASH_SIZE) return EOS_ERR_FLASH;
+    memcpy(&sim_flash[addr], buf, len);
+    return EOS_OK;
 }
+
+static int sim_flash_erase(uint32_t addr, size_t len)
+{
+    erased_addr = addr;
+    erased_size = len;
+    if (erase_result != EOS_OK) return erase_result;
+    if (addr + len > SIM_FLASH_SIZE) return EOS_ERR_FLASH;
+    memset(&sim_flash[addr], 0xFF, len);
+    return EOS_OK;
+}
+
+static uint32_t sim_tick = 0;
+static uint32_t sim_get_tick(void) { return sim_tick++; }
+static void sim_noop(void) {}
+static void sim_noop_u32(uint32_t x) { (void)x; }
+static void sim_jump(uint32_t addr) { (void)addr; }
+static eos_reset_reason_t sim_reset_reason(void) { return EOS_RESET_POWER_ON; }
+static bool sim_recovery_pin(void) { return false; }
+static void sim_system_reset(void) {}
+
+static const eos_board_ops_t sim_ops = {
+    .flash_base          = 0,
+    .flash_size          = SIM_FLASH_SIZE,
+    .slot_a_addr         = SLOT_A_ADDR,
+    .slot_a_size         = SLOT_SIZE,
+    .slot_b_addr         = SLOT_B_ADDR,
+    .slot_b_size         = SLOT_SIZE,
+    .recovery_addr       = 0,
+    .recovery_size       = 0,
+    .bootctl_addr        = 0,
+    .bootctl_backup_addr = 0x1000,
+    .log_addr            = 0x2000,
+    .app_vector_offset   = 0,
+    .flash_read          = sim_flash_read,
+    .flash_write         = sim_flash_write,
+    .flash_erase         = sim_flash_erase,
+    .watchdog_init       = sim_noop_u32,
+    .watchdog_feed       = sim_noop,
+    .get_reset_reason    = sim_reset_reason,
+    .system_reset        = sim_system_reset,
+    .recovery_pin_asserted = sim_recovery_pin,
+    .jump                = sim_jump,
+    .uart_init           = NULL,
+    .uart_send           = NULL,
+    .uart_recv           = NULL,
+    .get_tick_ms         = sim_get_tick,
+    .disable_interrupts  = sim_noop,
+    .enable_interrupts   = sim_noop,
+    .deinit_peripherals  = sim_noop,
+};
+
+/* ---- Scriptable per-slot verification results ---- */
 
 static int      parse_result[2];
 static int      integrity_result[2];
 static int      signature_result[2];
 static uint32_t slot_version[2];
-
-/* ---- Observed flash erase behaviour ---- */
-
-static int      erase_result;
-static uint32_t erased_addr;
-static size_t   erased_size;
 
 /** Map a flash address back to the slot that starts there, or -1. */
 static int slot_index(uint32_t addr)
@@ -237,13 +264,12 @@ TEST(test_erase_updates_state_only_on_success)
     ASSERT(eos_slot_get_version(EOS_SLOT_A) == 0);
 }
 
-
 /* The boot-attempt counter is what makes an unproven image fall back instead
  * of bricking the device: mark_booting() has to increment it, confirm() has to
  * clear it, and needs_rollback() has to fire once it reaches max_attempts.
  * PR #37 added this behaviour but its test never compiled, so none of it was
  * ever exercised. */
-static void test_boot_attempts_drive_rollback(void)
+TEST(test_boot_attempts_drive_rollback)
 {
     make_valid(EOS_SLOT_A, EOS_VERSION_MAKE(1, 0, 0));
     ASSERT(eos_slot_scan_all() == 1);
@@ -269,7 +295,7 @@ static void test_boot_attempts_drive_rollback(void)
     ASSERT(eos_slot_get_state(EOS_SLOT_A) == EOS_SLOT_STATE_CONFIRMED);
 }
 
-static void test_boot_attempts_reject_invalid_slot(void)
+TEST(test_boot_attempts_reject_invalid_slot)
 {
     ASSERT(eos_slot_mark_booting(EOS_SLOT_RECOVERY) == EOS_ERR_INVALID);
     ASSERT(eos_slot_confirm(EOS_SLOT_RECOVERY) == EOS_ERR_INVALID);
@@ -285,7 +311,7 @@ static void test_boot_attempts_reject_invalid_slot(void)
 
 /* Erasing a slot must also drop its boot-attempt count; otherwise a freshly
  * flashed image inherits the failures of the one it replaced. */
-static void test_erase_resets_boot_attempts(void)
+TEST(test_erase_resets_boot_attempts)
 {
     make_valid(EOS_SLOT_A, EOS_VERSION_MAKE(1, 0, 0));
     ASSERT(eos_slot_scan_all() == 1);
@@ -302,16 +328,17 @@ static void test_erase_resets_boot_attempts(void)
 
 int main(void)
 {
-    printf("=== eBootloader Slot Manager Tests ===\n");
-    RUN(test_scan_no_valid_slots);
-    RUN(test_scan_one_valid_slot);
-    RUN(test_scan_two_valid_slots);
-    RUN(test_verification_failures_are_invalid);
-    RUN(test_invalid_slot_is_rejected);
-    RUN(test_erase_updates_state_only_on_success);
-    RUN(test_boot_attempts_drive_rollback);
-    RUN(test_boot_attempts_reject_invalid_slot);
-    RUN(test_erase_resets_boot_attempts);
-    printf("\n%d/9 tests passed\n", tests_passed);
-    return 0;
+    printf("=== eBootloader Slot Manager Tests ===\n\n");
+    run_test_scan_no_valid_slots();
+    run_test_scan_one_valid_slot();
+    run_test_scan_two_valid_slots();
+    run_test_verification_failures_are_invalid();
+    run_test_invalid_slot_is_rejected();
+    run_test_erase_updates_state_only_on_success();
+    run_test_boot_attempts_drive_rollback();
+    run_test_boot_attempts_reject_invalid_slot();
+    run_test_erase_resets_boot_attempts();
+    tests_run = 9;
+    printf("\n%d/%d tests passed\n", tests_passed, tests_run);
+    return (tests_passed == tests_run) ? 0 : 1;
 }
