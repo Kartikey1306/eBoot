@@ -117,55 +117,11 @@ int eos_image_verify_integrity(const eos_image_header_t *hdr, uint32_t addr)
     return integrity_result[slot];
 }
 
-static int sim_flash_erase(uint32_t addr, size_t len)
+int eos_image_verify_signature(const eos_image_header_t *hdr)
 {
-    erased_addr = addr;
-    erased_size = len;
-    if (erase_result != EOS_OK) return erase_result;
-    if (addr + len > SIM_FLASH_SIZE) return EOS_ERR_FLASH;
-    memset(&sim_flash[addr], 0xFF, len);
-    return EOS_OK;
+    if (!hdr || hdr->reserved[0] > EOS_SLOT_B) return EOS_ERR_INVALID;
+    return signature_result[hdr->reserved[0]];
 }
-
-static uint32_t sim_tick = 0;
-static uint32_t sim_get_tick(void) { return sim_tick++; }
-static void sim_noop(void) {}
-static void sim_noop_u32(uint32_t x) { (void)x; }
-static void sim_jump(uint32_t addr) { (void)addr; }
-static eos_reset_reason_t sim_reset_reason(void) { return EOS_RESET_POWER_ON; }
-static bool sim_recovery_pin(void) { return false; }
-static void sim_system_reset(void) {}
-
-static const eos_board_ops_t sim_ops = {
-    .flash_base          = 0,
-    .flash_size          = SIM_FLASH_SIZE,
-    .slot_a_addr         = SLOT_A_ADDR,
-    .slot_a_size         = SLOT_SIZE,
-    .slot_b_addr         = SLOT_B_ADDR,
-    .slot_b_size         = SLOT_SIZE,
-    .recovery_addr       = 0,
-    .recovery_size       = 0,
-    .bootctl_addr        = 0,
-    .bootctl_backup_addr = 0x1000,
-    .log_addr            = 0x2000,
-    .app_vector_offset   = 0,
-    .flash_read          = sim_flash_read,
-    .flash_write         = sim_flash_write,
-    .flash_erase         = sim_flash_erase,
-    .watchdog_init       = sim_noop_u32,
-    .watchdog_feed       = sim_noop,
-    .get_reset_reason    = sim_reset_reason,
-    .system_reset        = sim_system_reset,
-    .recovery_pin_asserted = sim_recovery_pin,
-    .jump                = sim_jump,
-    .uart_init           = NULL,
-    .uart_send           = NULL,
-    .uart_recv           = NULL,
-    .get_tick_ms         = sim_get_tick,
-    .disable_interrupts  = sim_noop,
-    .enable_interrupts   = sim_noop,
-    .deinit_peripherals  = sim_noop,
-};
 
 /* ---- Test harness ---- */
 
