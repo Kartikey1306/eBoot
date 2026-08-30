@@ -15,6 +15,7 @@
  */
 
 #include "eos_bootctl.h"
+#include "eos_recovery.h"
 #include "eos_image.h"
 #include "eos_hal.h"
 #include "eos_crypto_boot.h"
@@ -280,12 +281,9 @@ static int recovery_handle_write(eos_slot_t slot, uint32_t offset, uint16_t len)
     if (len > sizeof(buf))
         return recovery_send_nack();
 
-    /* offset/len come straight from the wire; without this check a
-     * recovery client can write past the slot boundary into the other
-     * slot, boot-control blocks, or the boot log. eos_recovery_write_in_range()
-     * is the single definition of that rule: it is what the unit tests
-     * exercise, and it also rejects an unmapped slot (base == 0) and a
-     * base + offset that wraps the address space. */
+    /* offset/len come straight from the wire. The helper rejects a
+     * zero slot base, wrap of base+offset, and writes that run past
+     * the slot into boot-control, the other slot, or the boot log. */
     if (eos_recovery_write_in_range(base, slot_size, offset, len) != EOS_OK)
         return recovery_send_nack();
 
