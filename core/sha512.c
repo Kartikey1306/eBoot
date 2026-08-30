@@ -181,8 +181,8 @@ void eos_sha512_init(eos_sha512_ctx_t *ctx)
 }
 
 void eos_sha512_update(eos_sha512_ctx_t *ctx,
-                       const uint8_t *data,
-                       size_t len)
+                   const uint8_t *data,
+                   size_t len)
 {
     while (len > 0) {
         size_t copy = 128 - ctx->buffer_len;
@@ -246,7 +246,6 @@ void eos_sha512(const uint8_t *data, size_t len,
                 uint8_t digest[EOS_SHA512_DIGEST_SIZE])
 {
     eos_sha512_ctx_t ctx;
-
     eos_sha512_init(&ctx);
     eos_sha512_update(&ctx, data, len);
     eos_sha512_final(&ctx, digest);

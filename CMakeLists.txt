@@ -106,6 +106,8 @@ add_library(eboot_core STATIC
     core/bmc_handoff.c
     core/os_adapter.c
     core/ed25519_verify.c
+    core/sha512.c
+    core/rollback.c
     core/keystore.c
     core/debug_lock.c
     core/fw_decrypt.c
@@ -208,7 +210,6 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(cortex_m0 boards/cortex_m0/board_cortex_m0.c boards/cortex_m0)
     elseif(EBLDR_BOARD STREQUAL "cortex_m0plus")
         eboot_add_board(cortex_m0plus boards/cortex_m0plus/board_cortex_m0plus.c boards/cortex_m0plus)
-    # --- New ARM Cortex-M boards ---
     elseif(EBLDR_BOARD STREQUAL "cortex_m3")
         eboot_add_board(cortex_m3 boards/cortex_m3/board_cortex_m3.c boards/cortex_m3)
     elseif(EBLDR_BOARD STREQUAL "cortex_m23")
@@ -219,12 +220,10 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(cortex_m55 boards/cortex_m55/board_cortex_m55.c boards/cortex_m55)
     elseif(EBLDR_BOARD STREQUAL "cortex_m85")
         eboot_add_board(cortex_m85 boards/cortex_m85/board_cortex_m85.c boards/cortex_m85)
-    # --- New ARM Cortex-R boards ---
     elseif(EBLDR_BOARD STREQUAL "cortex_r4")
         eboot_add_board(cortex_r4 boards/cortex_r4/board_cortex_r4.c boards/cortex_r4)
     elseif(EBLDR_BOARD STREQUAL "cortex_r52")
         eboot_add_board(cortex_r52 boards/cortex_r52/board_cortex_r52.c boards/cortex_r52)
-    # --- New ARM Cortex-A boards ---
     elseif(EBLDR_BOARD STREQUAL "cortex_a5")
         eboot_add_board(cortex_a5 boards/cortex_a5/board_cortex_a5.c boards/cortex_a5)
     elseif(EBLDR_BOARD STREQUAL "cortex_a9")
@@ -237,14 +236,12 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(cortex_a55 boards/cortex_a55/board_cortex_a55.c boards/cortex_a55)
     elseif(EBLDR_BOARD STREQUAL "cortex_a76")
         eboot_add_board(cortex_a76 boards/cortex_a76/board_cortex_a76.c boards/cortex_a76)
-    # --- Legacy ARM boards ---
     elseif(EBLDR_BOARD STREQUAL "arm7tdmi")
         eboot_add_board(arm7tdmi boards/arm7tdmi/board_arm7tdmi.c boards/arm7tdmi)
     elseif(EBLDR_BOARD STREQUAL "arm9")
         eboot_add_board(arm9 boards/arm9/board_arm9.c boards/arm9)
     elseif(EBLDR_BOARD STREQUAL "arm11")
         eboot_add_board(arm11 boards/arm11/board_arm11.c boards/arm11)
-    # --- Microchip architectures ---
     elseif(EBLDR_BOARD STREQUAL "avr")
         eboot_add_board(avr boards/avr/board_avr.c boards/avr)
     elseif(EBLDR_BOARD STREQUAL "avr32")
@@ -259,7 +256,6 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(dspic boards/dspic/board_dspic.c boards/dspic)
     elseif(EBLDR_BOARD STREQUAL "pic32")
         eboot_add_board(pic32 boards/pic32/board_pic32.c boards/pic32)
-    # --- TI architectures ---
     elseif(EBLDR_BOARD STREQUAL "msp430")
         eboot_add_board(msp430 boards/msp430/board_msp430.c boards/msp430)
     elseif(EBLDR_BOARD STREQUAL "c28x")
@@ -268,7 +264,6 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(c6000 boards/c6000/board_c6000.c boards/c6000)
     elseif(EBLDR_BOARD STREQUAL "pru")
         eboot_add_board(pru boards/pru/board_pru.c boards/pru)
-    # --- Renesas + Infineon ---
     elseif(EBLDR_BOARD STREQUAL "rl78")
         eboot_add_board(rl78 boards/rl78/board_rl78.c boards/rl78)
     elseif(EBLDR_BOARD STREQUAL "rx")
@@ -277,7 +272,6 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(tricore boards/tricore/board_tricore.c boards/tricore)
     elseif(EBLDR_BOARD STREQUAL "c166")
         eboot_add_board(c166 boards/c166/board_c166.c boards/c166)
-    # --- FPGA soft-cores ---
     elseif(EBLDR_BOARD STREQUAL "microblaze")
         eboot_add_board(microblaze boards/microblaze/board_microblaze.c boards/microblaze)
     elseif(EBLDR_BOARD STREQUAL "nios2")
@@ -286,7 +280,6 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(openrisc boards/openrisc/board_openrisc.c boards/openrisc)
     elseif(EBLDR_BOARD STREQUAL "lm32")
         eboot_add_board(lm32 boards/lm32/board_lm32.c boards/lm32)
-    # --- DSP architectures ---
     elseif(EBLDR_BOARD STREQUAL "blackfin")
         eboot_add_board(blackfin boards/blackfin/board_blackfin.c boards/blackfin)
     elseif(EBLDR_BOARD STREQUAL "sharc")
@@ -297,7 +290,6 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(ceva boards/ceva/board_ceva.c boards/ceva)
     elseif(EBLDR_BOARD STREQUAL "xtensa_hifi")
         eboot_add_board(xtensa_hifi boards/xtensa_hifi/board_xtensa_hifi.c boards/xtensa_hifi)
-    # --- Synopsys + 8-bit + Espressif ---
     elseif(EBLDR_BOARD STREQUAL "arc")
         eboot_add_board(arc boards/arc/board_arc.c boards/arc)
     elseif(EBLDR_BOARD STREQUAL "8051")
@@ -308,7 +300,6 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         eboot_add_board(esp32s3 boards/esp32s3/board_esp32s3.c boards/esp32s3)
     elseif(EBLDR_BOARD STREQUAL "esp32c3")
         eboot_add_board(esp32c3 boards/esp32c3/board_esp32c3.c boards/esp32c3)
-    # --- Server/legacy/exotic ---
     elseif(EBLDR_BOARD STREQUAL "mips64")
         eboot_add_board(mips64 boards/mips64/board_mips64.c boards/mips64)
     elseif(EBLDR_BOARD STREQUAL "sparc64")
@@ -338,6 +329,36 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         set(_LD_STAGE0 "${CMAKE_CURRENT_SOURCE_DIR}/boards/${EBLDR_BOARD}/${EBLDR_BOARD}_stage0.ld")
         set(_LD_STAGE1 "${CMAKE_CURRENT_SOURCE_DIR}/boards/${EBLDR_BOARD}/${EBLDR_BOARD}_stage1.ld")
 
+        # ---- Stage-1 hash, embedded into stage-0 -------------------------
+        # stage0/jump_stage1.c hashes stage-1 in flash and compares against
+        # stage1_expected_hash / stage1_expected_size before jumping. Nothing
+        # defined those symbols, so every board build failed to link with
+        # EBLDR_VERIFY_STAGE1 (default ON) -- the first link of the secure boot
+        # chain was never actually built. tools/embed_stage1_hash.py generates
+        # them from the stage-1 binary; it has to run after eboot_firmware is
+        # linked and objcopy'd, which is why the dependency is on that target.
+        set(_STAGE1_HASH_C "${CMAKE_CURRENT_BINARY_DIR}/stage1_hash.c")
+        if(EBLDR_VERIFY_STAGE1 AND EXISTS "${_LD_STAGE1}")
+            find_package(Python3 COMPONENTS Interpreter REQUIRED)
+            add_custom_command(
+                OUTPUT "${_STAGE1_HASH_C}"
+                COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_stage1_hash.py"
+                        --input "${CMAKE_CURRENT_BINARY_DIR}/eboot_firmware.bin"
+                        --output "${_STAGE1_HASH_C}"
+                DEPENDS eboot_firmware
+                        "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_stage1_hash.py"
+                COMMENT "Embedding stage-1 SHA-256 into stage-0"
+                VERBATIM
+            )
+        elseif(EBLDR_VERIFY_STAGE1)
+            message(FATAL_ERROR
+                "EBLDR_VERIFY_STAGE1 is ON but board ${EBLDR_BOARD} has no "
+                "stage-1 linker script, so there is no stage-1 image to hash. "
+                "Configure with -DEBLDR_VERIFY_STAGE1=OFF to build stage-0 "
+                "without the integrity check.")
+        endif()
+
         if(EXISTS "${_LD_STAGE0}")
             add_executable(ebldr_stage0
                 stage0/reset_entry.c
@@ -345,6 +366,7 @@ if(NOT EBLDR_BOARD STREQUAL "none")
                 stage0/watchdog.c
                 stage0/recovery_entry.c
                 stage0/jump_stage1.c
+                $<$<BOOL:${EBLDR_VERIFY_STAGE1}>:${_STAGE1_HASH_C}>
             )
             target_include_directories(ebldr_stage0 PRIVATE
                 ${EBLDR_INCLUDE_DIR}

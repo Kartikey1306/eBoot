@@ -427,23 +427,21 @@ int eos_ed25519_verify(const uint8_t signature[64],
     eos_sha512_final(&ctx, k);
     reduce_hash(k);
 
-    /* Accept iff [S]B == R + [k]A, checked as [S]B - [k]A == R.
-     *
-     * A already holds -A (unpackneg() negates on decode), so [k]A' is the
-     * subtraction. scalarmult() consumes its point argument in place, which is
-     * why q is reloaded with the base point only after [k]A' has been formed. */
-    gf p[4], q[4];
-    scalarmult(p, A, k);                 /* p = [k](-A)      */
-    scalarbase(q, &signature[32]);       /* q = [S]B         */
-    point_add(p, (const gf *)q);         /* p = [S]B - [k]A  */
+    /* Recompute R' = [S]B + [k](-A). A is already negated by unpackneg(), so
+     * the sum is R' rather than a difference. RFC 8032 permits the cheaper
+     * "compare encodings" check in place of a group-element comparison. */
+    gf lhs[4], rhs[4];
+    scalarmult(lhs, A, k);
+    scalarbase(rhs, &signature[32]);
+    point_add(lhs, (const gf *)rhs);
 
-    uint8_t check[32];
-    point_pack(check, p);
+    uint8_t rcheck[32];
+    point_pack(rcheck, lhs);
 
-    /* Compare against R without an early exit, so a rejected signature costs
-     * the same time whatever byte it first differs at. */
+    /* Constant-time comparison against R. */
     uint8_t diff = 0;
-    for (int i = 0; i < 32; i++) diff |= (uint8_t)(check[i] ^ signature[i]);
+    for (int i = 0; i < 32; i++)
+        diff |= (uint8_t)(rcheck[i] ^ signature[i]);
 
     return diff == 0 ? EOS_OK : EOS_ERR_SIGNATURE;
 }
