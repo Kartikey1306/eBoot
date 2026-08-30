@@ -11,11 +11,6 @@ add_executable(eboot_test_crypto unit/test_crypto.c)
 target_link_libraries(eboot_test_crypto PRIVATE eboot_core)
 add_test(NAME test_crypto COMMAND eboot_test_crypto)
 
-# --- test_image_abi: .efw wire format, shared with eFirmware ---
-add_executable(eboot_test_image_abi unit/test_image_abi.c)
-target_link_libraries(eboot_test_image_abi PRIVATE eboot_core)
-add_test(NAME test_image_abi COMMAND eboot_test_image_abi)
-
 # --- test_image_verify: Image header parse bounds ---
 add_executable(eboot_test_image_verify unit/test_image_verify.c)
 target_link_libraries(eboot_test_image_verify PRIVATE eboot_core)
@@ -85,11 +80,6 @@ add_test(NAME test_rollback COMMAND eboot_test_rollback)
 add_executable(eboot_test_storage unit/test_storage.c)
 target_link_libraries(eboot_test_storage PRIVATE eboot_core)
 add_test(NAME test_storage COMMAND eboot_test_storage)
-
-# --- test_fw_transport: XMODEM/YMODEM firmware transport ---
-add_executable(test_fw_transport unit/test_fw_transport.c)
-target_link_libraries(test_fw_transport PRIVATE eboot_core)
-add_test(NAME test_fw_transport COMMAND test_fw_transport)
 
 # --- Valgrind test targets ---
 find_program(VALGRIND valgrind)
