@@ -182,8 +182,19 @@ eos_secure_boot_result_t eos_secure_boot(const eos_secure_boot_config_t *cfg,
     }
 
     /* ---- Step 7: Lock debug interfaces ---- */
+    /*
+     * A policy that asked for the debug port to be closed and did not get
+     * it is a policy violation, not a detail. The result used to be
+     * discarded, so a board whose OTP write failed -- or one with no
+     * otp_write at all, where the HAL returns EOS_ERR_NOT_SUPPORTED --
+     * booted with SWD/JTAG open while attestation recorded EOS_SBOOT_OK.
+     */
     if (cfg->lock_debug) {
-        eos_secure_boot_lock_debug();
+        if (eos_secure_boot_lock_debug() != EOS_OK) {
+            attest_record(2, hdr.image_version, hdr.hash, NULL,
+                          EOS_SBOOT_ERR_POLICY);
+            return EOS_SBOOT_ERR_POLICY;
+        }
     }
 
     /* ---- Step 8: Record successful attestation ---- */
@@ -212,17 +223,21 @@ int eos_secure_boot_verify_key(const uint8_t key_hash[32])
     return secure_compare(key_hash, otp_hash, 32);
 }
 
-void eos_secure_boot_lock_debug(void)
+int eos_secure_boot_lock_debug(void)
 {
     /* Write lock pattern to eFuse debug lock register */
     uint8_t lock = 0xFF;
-    eos_hal_otp_write(OTP_DEBUG_LOCK_OFFSET, &lock, 1);
+    int rc = eos_hal_otp_write(OTP_DEBUG_LOCK_OFFSET, &lock, 1);
+    if (rc != EOS_OK)
+        return rc;
 
     /* On Cortex-M: disable DAP access via DHCSR if supported */
 #if defined(__ARM_ARCH)
     /* Some MCUs support disabling debug via DBGMCU register */
     /* *((volatile uint32_t *)0xE0042004) = 0; */
 #endif
+
+    return EOS_OK;
 }
 
 int eos_secure_boot_update_rollback(uint32_t new_version)
