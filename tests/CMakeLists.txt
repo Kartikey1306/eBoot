@@ -90,6 +90,11 @@ add_executable(eboot_test_keystore unit/test_keystore.c)
 target_link_libraries(eboot_test_keystore PRIVATE eboot_core)
 add_test(NAME test_keystore COMMAND eboot_test_keystore)
 
+# --- test_fw_decrypt: Streaming AES-256-GCM firmware decryption ---
+add_executable(eboot_test_fw_decrypt unit/test_fw_decrypt.c)
+target_link_libraries(eboot_test_fw_decrypt PRIVATE eboot_core)
+add_test(NAME test_fw_decrypt COMMAND eboot_test_fw_decrypt)
+
 # --- test_rollback: Anti-rollback security counter ---
 add_executable(eboot_test_rollback unit/test_rollback.c)
 target_link_libraries(eboot_test_rollback PRIVATE eboot_core)
