@@ -26,12 +26,36 @@ static uint32_t fdt_read_u32(const uint8_t *ptr)
     return fdt32_to_cpu(val);
 }
 
+/* Does [off, off+len) sit inside a blob of totalsize bytes, without the
+ * addition wrapping? Every offset in the header is attacker-controlled. */
+static bool fdt_block_in_bounds(uint32_t off, uint32_t len, uint32_t totalsize)
+{
+    if (off < sizeof(fdt_header_t)) return false;
+    if (len > totalsize) return false;
+    return off <= totalsize - len;
+}
+
 int eos_fdt_validate(const void *fdt_blob)
 {
     if (!fdt_blob) return -1;
     const fdt_header_t *hdr = (const fdt_header_t *)fdt_blob;
     if (fdt32_to_cpu(hdr->magic) != FDT_MAGIC) return -2;
     if (fdt32_to_cpu(hdr->version) < 16) return -3;
+
+    /* magic and version alone say nothing about where the blob claims its
+     * blocks are. The struct and string offsets are read straight out of
+     * flash and then used as pointers, so a blob that clears the two checks
+     * above could still point them anywhere; eos_fdt_get_prop walked off the
+     * end of a 40-byte allocation and took a bus fault. Reject the blob here
+     * instead, because this is the gate every path goes through. */
+    uint32_t totalsize = fdt32_to_cpu(hdr->totalsize);
+    if (totalsize < sizeof(fdt_header_t)) return -6;
+    if (!fdt_block_in_bounds(fdt32_to_cpu(hdr->off_dt_struct),
+                             fdt32_to_cpu(hdr->size_dt_struct), totalsize))
+        return -6;
+    if (!fdt_block_in_bounds(fdt32_to_cpu(hdr->off_dt_strings),
+                             fdt32_to_cpu(hdr->size_dt_strings), totalsize))
+        return -6;
     return 0;
 }
 
@@ -49,6 +73,10 @@ int eos_fdt_load(uint32_t flash_addr, void *dest, uint32_t max_size)
     const fdt_header_t *hdr = (const fdt_header_t *)dest;
     uint32_t total = fdt32_to_cpu(hdr->totalsize);
     if (total > max_size) return -4;
+    /* validate() has already rejected a totalsize below the header, but the
+     * header copied above is all that was read: re-check against what the
+     * caller actually offered before the full copy. */
+    if (total < sizeof(fdt_header_t)) return -4;
 
     /* Copy full DTB */
     memcpy(dest, src, total);
@@ -60,10 +88,17 @@ int eos_fdt_get_prop(const void *fdt, const char *node_path,
 {
     if (!fdt || !node_path || !prop_name || !buf || !buf_len) return -1;
 
+    /* The blob is whatever was in flash. Every offset below comes out of its
+     * header, so none of them can be trusted until validate() has bounded
+     * them against totalsize. */
+    int vrc = eos_fdt_validate(fdt);
+    if (vrc != 0) return vrc;
+
     const fdt_header_t *hdr = (const fdt_header_t *)fdt;
     const uint8_t *dt_struct = (const uint8_t *)fdt + fdt32_to_cpu(hdr->off_dt_struct);
     const char *dt_strings = (const char *)fdt + fdt32_to_cpu(hdr->off_dt_strings);
     uint32_t struct_size = fdt32_to_cpu(hdr->size_dt_struct);
+    uint32_t strings_size = fdt32_to_cpu(hdr->size_dt_strings);
 
     /* Simple linear search through struct block */
     uint32_t offset = 0;
@@ -78,15 +113,22 @@ int eos_fdt_get_prop(const void *fdt, const char *node_path,
     }
     if (path_depth == 0) path_depth = 1;
 
-    while (offset < struct_size) {
+    /* offset < struct_size only guarantees one byte; every read below wants
+     * four or more, so each is checked for the width it actually takes. */
+    while (offset + 4 <= struct_size) {
         uint32_t tag = fdt_read_u32(dt_struct + offset);
         offset += 4;
 
         switch (tag) {
         case FDT_BEGIN_NODE: {
+            /* strlen() here read until it happened to find a zero, which
+             * for a name running to the end of the block is past it. */
             const char *name = (const char *)(dt_struct + offset);
-            uint32_t name_len = (uint32_t)strlen(name) + 1;
+            const void *nul = memchr(name, '\0', struct_size - offset);
+            if (!nul) return -6;
+            uint32_t name_len = (uint32_t)((const char *)nul - name) + 1;
             offset += (name_len + 3) & ~3U;
+            if (offset > struct_size) return -6;
             depth++;
 
             /* Check if this node matches the target path */
@@ -103,13 +145,28 @@ int eos_fdt_get_prop(const void *fdt, const char *node_path,
         }
         case FDT_END_NODE:
             if (in_target && depth == target_depth) in_target = false;
+            /* An unbalanced blob would drive depth negative and let a later
+             * BEGIN_NODE match path_depth at the wrong nesting level. */
+            if (depth == 0) return -6;
             depth--;
             break;
         case FDT_PROP: {
+            if (offset + 8 > struct_size) return -6;
             uint32_t len = fdt_read_u32(dt_struct + offset);
             uint32_t nameoff = fdt_read_u32(dt_struct + offset + 4);
             offset += 8;
+
+            /* nameoff indexes the strings block; unchecked it named any
+             * address, and strcmp then read from it. */
+            if (nameoff >= strings_size) return -6;
             const char *pname = dt_strings + nameoff;
+            if (!memchr(pname, '\0', strings_size - nameoff)) return -6;
+
+            /* The value has to be inside the struct block before it is read:
+             * copy_len was clamped to the caller's buffer, which bounded the
+             * write but not the read, so an oversized len leaked whatever
+             * followed the blob into buf. */
+            if (len > struct_size - offset) return -6;
 
             if (in_target && strcmp(pname, prop_name) == 0) {
                 uint32_t copy_len = len < *buf_len ? len : *buf_len;
@@ -117,7 +174,9 @@ int eos_fdt_get_prop(const void *fdt, const char *node_path,
                 *buf_len = copy_len;
                 return 0;
             }
+            /* len is bounded above, so the pad cannot wrap. */
             offset += (len + 3) & ~3U;
+            if (offset > struct_size) return -6;
             break;
         }
         case FDT_END:
