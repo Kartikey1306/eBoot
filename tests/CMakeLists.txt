@@ -90,6 +90,11 @@ add_executable(eboot_test_keystore unit/test_keystore.c)
 target_link_libraries(eboot_test_keystore PRIVATE eboot_core)
 add_test(NAME test_keystore COMMAND eboot_test_keystore)
 
+# --- test_secure_boot_policy: debug-lock policy enforcement ---
+add_executable(eboot_test_secure_boot_policy unit/test_secure_boot_policy.c)
+target_link_libraries(eboot_test_secure_boot_policy PRIVATE eboot_core)
+add_test(NAME test_secure_boot_policy COMMAND eboot_test_secure_boot_policy)
+
 # --- test_rollback: Anti-rollback security counter ---
 add_executable(eboot_test_rollback unit/test_rollback.c)
 target_link_libraries(eboot_test_rollback PRIVATE eboot_core)
