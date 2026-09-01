@@ -86,8 +86,27 @@ target_link_libraries(eboot_test_ed25519 PRIVATE eboot_core)
 add_test(NAME test_ed25519 COMMAND eboot_test_ed25519)
 
 # --- test_ed25519_contract: the corpus shared byte-for-byte with eos ---
-add_executable(eboot_test_ed25519_contract unit/test_ed25519_contract.c)
+# The vector table is 54 KB of generated data. It is produced into the build
+# tree rather than committed, because the identical file would otherwise be
+# checked in to both eos and this repo and kept in step by hand. The
+# generator is pure stdlib and deterministic, so both sides derive the same
+# EOS_ED25519_CONTRACT_DIGEST -- which is what the two tests print and compare.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(ED25519_CONTRACT_VECTORS
+    ${CMAKE_CURRENT_BINARY_DIR}/vectors/ed25519_contract_vectors.h)
+add_custom_command(
+    OUTPUT ${ED25519_CONTRACT_VECTORS}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tools/gen_ed25519_contract_vectors.py
+            -o ${ED25519_CONTRACT_VECTORS}
+    DEPENDS ${CMAKE_SOURCE_DIR}/tools/gen_ed25519_contract_vectors.py
+    COMMENT "Generating the shared Ed25519 contract vectors"
+    VERBATIM)
+add_executable(eboot_test_ed25519_contract unit/test_ed25519_contract.c ${ED25519_CONTRACT_VECTORS})
 target_link_libraries(eboot_test_ed25519_contract PRIVATE eboot_core)
+target_include_directories(eboot_test_ed25519_contract PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
 add_test(NAME test_ed25519_contract COMMAND eboot_test_ed25519_contract)
 
 # --- test_keystore: Key management ---

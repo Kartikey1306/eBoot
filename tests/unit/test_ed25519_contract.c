@@ -24,7 +24,7 @@
 #include "eos_crypto_boot.h"
 #include "eos_types.h"
 
-#include "../vectors/ed25519_contract_vectors.h"
+#include "vectors/ed25519_contract_vectors.h"
 
 #include <stdio.h>
 #include <string.h>
