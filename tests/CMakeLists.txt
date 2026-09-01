@@ -85,6 +85,11 @@ add_executable(eboot_test_ed25519 unit/test_ed25519.c)
 target_link_libraries(eboot_test_ed25519 PRIVATE eboot_core)
 add_test(NAME test_ed25519 COMMAND eboot_test_ed25519)
 
+# --- test_ed25519_contract: the corpus shared byte-for-byte with eos ---
+add_executable(eboot_test_ed25519_contract unit/test_ed25519_contract.c)
+target_link_libraries(eboot_test_ed25519_contract PRIVATE eboot_core)
+add_test(NAME test_ed25519_contract COMMAND eboot_test_ed25519_contract)
+
 # --- test_keystore: Key management ---
 add_executable(eboot_test_keystore unit/test_keystore.c)
 target_link_libraries(eboot_test_keystore PRIVATE eboot_core)
@@ -114,7 +119,7 @@ add_test(NAME test_ecc COMMAND eboot_test_ecc)
 find_program(VALGRIND valgrind)
 if(VALGRIND)
     set(VALGRIND_OPTS --leak-check=full --error-exitcode=1 --quiet)
-    foreach(TEST_NAME test_bootctl test_crypto test_ed25519 test_keystore
+    foreach(TEST_NAME test_bootctl test_crypto test_ed25519 test_ed25519_contract test_keystore
                       test_device_table test_runtime_svc test_board_config
                       test_multicore test_board_registry test_slot_manager
                       test_boot_log test_image_verify test_image_abi
