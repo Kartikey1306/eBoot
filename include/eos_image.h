@@ -80,6 +80,65 @@ EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, sig_type) == 60,
 EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, signature) == 92,
                       "signature[] must stay at offset 92");
 
+/* Every remaining field, pinned.
+ *
+ * Four of the fourteen fields were asserted. Transposing two adjacent
+ * same-width fields moves neither sizeof nor any of those four offsets, so it
+ * compiled clean: with load_addr and entry_addr swapped, all four existing
+ * asserts still passed and the bootloader would load an image at its entry
+ * point and jump to its load address. A wire format needs every field pinned,
+ * not a representative sample. */
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, magic) == 0,
+                      "magic must stay at offset 0");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, hdr_version) == 4,
+                      "hdr_version must stay at offset 4");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, hdr_size) == 6,
+                      "hdr_size must stay at offset 6");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, image_size) == 8,
+                      "image_size must stay at offset 8");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, load_addr) == 12,
+                      "load_addr must stay at offset 12");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, entry_addr) == 16,
+                      "entry_addr must stay at offset 16");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, image_version) == 20,
+                      "image_version must stay at offset 20");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, flags) == 24,
+                      "flags must stay at offset 24");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, sig_len) == 61,
+                      "sig_len must stay at offset 61");
+EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, reserved) == 62,
+                      "reserved[] must stay at offset 62");
+
+/* Field widths. An offset assert cannot see a field growing into padding that
+ * happens to keep every later offset -- reserved[] absorbs exactly that. */
+EOS_IMG_STATIC_ASSERT(sizeof(((eos_image_header_t *)0)->hash) == 32,
+                      "hash[] is 32 bytes on the wire");
+EOS_IMG_STATIC_ASSERT(sizeof(((eos_image_header_t *)0)->reserved) == 30,
+                      "reserved[] is 30 bytes on the wire");
+EOS_IMG_STATIC_ASSERT(sizeof(((eos_image_header_t *)0)->signature) == 64,
+                      "signature[] is 64 bytes on the wire");
+
+/* Constant values. These travel inside the image, so they are wire format too
+ * and an offset assert says nothing about them. Changing EOS_SIG_ED25519 from
+ * 3 to 4, or reordering the enum, compiled cleanly and passed every assert
+ * above while making eBoot misread the signature type of every image already
+ * in the field. eFirmware pins the same numbers on its side
+ * (EFW_IMAGE_MAGIC == 0x454F5349u, EFW_SIG_ED25519 == 3); these are the
+ * matching half, so the two definitions can no longer drift apart in silence. */
+EOS_IMG_STATIC_ASSERT(EOS_IMG_MAGIC == 0x454F5349,
+                      "magic is \"EOSI\" and eFirmware stamps the same value");
+EOS_IMG_STATIC_ASSERT(EOS_HASH_SIZE == 32, "hash is SHA-256, 32 bytes");
+EOS_IMG_STATIC_ASSERT(EOS_SIG_MAX_SIZE == 64, "signature area is 64 bytes");
+EOS_IMG_STATIC_ASSERT(EOS_IMG_SIGNED_LEN == 92,
+                      "the signed prefix is the 92 bytes before signature[]");
+EOS_IMG_STATIC_ASSERT(EOS_IMAGE_HDR_VERSION == 2,
+                      "eBoot writes and expects header format v2");
+EOS_IMG_STATIC_ASSERT((int)EOS_SIG_NONE == 0, "EOS_SIG_NONE is 0 on the wire");
+EOS_IMG_STATIC_ASSERT((int)EOS_SIG_CRC32 == 1, "EOS_SIG_CRC32 is 1 on the wire");
+EOS_IMG_STATIC_ASSERT((int)EOS_SIG_SHA256 == 2, "EOS_SIG_SHA256 is 2 on the wire");
+EOS_IMG_STATIC_ASSERT((int)EOS_SIG_ED25519 == 3, "EOS_SIG_ED25519 is 3 on the wire");
+EOS_IMG_STATIC_ASSERT((int)EOS_SIG_ECDSA == 4, "EOS_SIG_ECDSA is 4 on the wire");
+
 /* ---------------- Image Validation API ---------------- */
 
 /**
