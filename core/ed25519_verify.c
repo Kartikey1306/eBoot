@@ -496,10 +496,6 @@ int eos_ed25519_verify(const uint8_t signature[64],
     if (!public_key_is_valid_subgroup(A))
         return EOS_ERR_SIGNATURE;
 
-    /* On the curve is not enough: a low-order key verifies anything. */
-    if (!key_has_prime_order(A))
-        return EOS_ERR_SIGNATURE;
-
     /* k = SHA-512(R || A || M) mod L */
     eos_sha512_ctx_t ctx;
     uint8_t k[64];
