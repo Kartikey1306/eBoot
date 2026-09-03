@@ -18,6 +18,8 @@
 
 #include "eos_secure_boot.h"
 #include "eos_hal.h"
+#include "eos_image.h"
+#include "eos_crypto_boot.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -45,6 +47,9 @@ static int tests_passed = 0;
 /* ---- Simulated board: OTP only, with a scriptable write result ---- */
 
 #define OTP_SIZE 0x400
+#define FLASH_BASE 0x08000000U
+#define FLASH_SIZE 0x800
+static uint8_t sim_flash[FLASH_SIZE];
 static uint8_t sim_otp[OTP_SIZE];
 static int otp_write_rc;
 static int otp_write_calls;
@@ -66,6 +71,52 @@ static int sim_otp_write(uint32_t offset, const void *buf, size_t len)
     return EOS_OK;
 }
 
+static int sim_flash_read(uint32_t addr, void *buf, size_t len)
+{
+    if (addr < FLASH_BASE) return EOS_ERR_INVALID;
+    uint32_t off = addr - FLASH_BASE;
+    if ((uint64_t)off + len > FLASH_SIZE) return EOS_ERR_INVALID;
+    memcpy(buf, sim_flash + off, len);
+    return EOS_OK;
+}
+
+/* An image that clears steps 1, 2 and 5, so control actually reaches the
+ * debug lock in step 7. Unsigned and unencrypted -- cfg turns those steps
+ * off -- because what is under test is the policy step, not the crypto. */
+static void stage_bootable_image(void)
+{
+    memset(sim_flash, 0, sizeof(sim_flash));
+
+    static const uint8_t payload[16] = {
+        0xDE,0xAD,0xBE,0xEF,0x01,0x02,0x03,0x04,
+        0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,
+    };
+
+    eos_image_header_t hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic         = EOS_IMG_MAGIC;
+    hdr.hdr_version   = EOS_IMAGE_HDR_VERSION;
+    hdr.hdr_size      = (uint16_t)sizeof(eos_image_header_t);
+    hdr.image_size    = (uint32_t)sizeof(payload);
+    hdr.load_addr     = 0x20000000U;
+    hdr.entry_addr    = 0x20000001U;
+    hdr.image_version = 1;
+    /* Without this flag verify_integrity takes the CRC32 branch and reads a
+     * CRC out of hash[], so step 2 fails and step 7 is never reached. */
+    hdr.flags         = EOS_IMG_FLAG_HASH_SHA256;
+    hdr.sig_type      = EOS_SIG_NONE;
+    hdr.sig_len       = 0;
+    hdr.tlv_len       = 0;
+
+    eos_sha256_ctx_t sha;
+    eos_sha256_init(&sha);
+    eos_sha256_update(&sha, payload, sizeof(payload));
+    eos_sha256_final(&sha, hdr.hash);
+
+    memcpy(sim_flash, &hdr, sizeof(hdr));
+    memcpy(sim_flash + sizeof(hdr), payload, sizeof(payload));
+}
+
 static eos_board_ops_t sim_ops;
 
 static void reset_fixture(void)
@@ -73,6 +124,7 @@ static void reset_fixture(void)
     memset(&sim_ops, 0, sizeof(sim_ops));
     memset(sim_otp, 0, sizeof(sim_otp));
     sim_ops.otp_read = sim_otp_read;
+    sim_ops.flash_read = sim_flash_read;
     if (provide_otp_write) sim_ops.otp_write = sim_otp_write;
     otp_write_rc = EOS_OK;
     otp_write_calls = 0;
@@ -113,6 +165,68 @@ TEST(test_lock_debug_reports_a_board_with_no_otp_write)
     ASSERT(otp_write_calls == 0);
 }
 
+/* The three tests above assert what the *helper* reports. This one asserts
+ * what the boot *does* with that report, which is the behaviour this PR
+ * actually changed -- the early return at step 7. Without it the suite
+ * covers "attempted" while the file's own docblock claims "enforced", and a
+ * revert of the step-7 branch would leave every other test passing. */
+TEST(test_secure_boot_refuses_when_the_debug_lock_cannot_be_taken)
+{
+    provide_otp_write = 0;          /* the common case: board has no otp_write */
+    reset_fixture();
+    stage_bootable_image();
+
+    eos_secure_boot_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.image_addr        = FLASH_BASE;
+    cfg.require_signature = false;
+    cfg.require_encryption = false;
+    cfg.lock_debug        = true;
+
+    uint32_t entry = 0;
+    ASSERT(eos_secure_boot(&cfg, &entry) == EOS_SBOOT_ERR_POLICY);
+}
+
+/* The counter-check: the same image and the same board, with lock_debug off,
+ * must still boot. Without this, the test above would also pass if steps 1-6
+ * were failing for some unrelated reason and never reaching step 7. */
+TEST(test_the_same_image_boots_when_no_debug_lock_is_asked_for)
+{
+    provide_otp_write = 0;
+    reset_fixture();
+    stage_bootable_image();
+
+    eos_secure_boot_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.image_addr        = FLASH_BASE;
+    cfg.require_signature = false;
+    cfg.require_encryption = false;
+    cfg.lock_debug        = false;
+
+    uint32_t entry = 0;
+    ASSERT(eos_secure_boot(&cfg, &entry) == EOS_SBOOT_OK);
+    ASSERT(entry == 0x20000001U);
+}
+
+/* And with a working fuse, lock_debug: true boots and the fuse is written. */
+TEST(test_secure_boot_proceeds_when_the_debug_lock_succeeds)
+{
+    provide_otp_write = 1;
+    reset_fixture();
+    stage_bootable_image();
+
+    eos_secure_boot_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.image_addr        = FLASH_BASE;
+    cfg.require_signature = false;
+    cfg.require_encryption = false;
+    cfg.lock_debug        = true;
+
+    uint32_t entry = 0;
+    ASSERT(eos_secure_boot(&cfg, &entry) == EOS_SBOOT_OK);
+    ASSERT(otp_write_calls == 1);
+}
+
 int main(void)
 {
     printf("=== eBootloader: Secure Boot Debug-Lock Policy Tests ===\n\n");
@@ -120,8 +234,11 @@ int main(void)
     run_test_lock_debug_reports_success_when_the_fuse_is_written();
     run_test_lock_debug_reports_a_failed_fuse_write();
     run_test_lock_debug_reports_a_board_with_no_otp_write();
+    run_test_secure_boot_refuses_when_the_debug_lock_cannot_be_taken();
+    run_test_the_same_image_boots_when_no_debug_lock_is_asked_for();
+    run_test_secure_boot_proceeds_when_the_debug_lock_succeeds();
 
-    tests_run = 3;
+    tests_run = 6;
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
 }
