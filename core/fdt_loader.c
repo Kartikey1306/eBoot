@@ -35,7 +35,7 @@ static bool fdt_block_in_bounds(uint32_t off, uint32_t len, uint32_t totalsize)
     return off <= totalsize - len;
 }
 
-int eos_fdt_validate_sized(const void *fdt_blob, uint32_t avail)
+int eos_fdt_validate(const void *fdt_blob, uint32_t avail)
 {
     if (!fdt_blob) return -1;
     if (avail < sizeof(fdt_header_t)) return -6;
@@ -67,14 +67,6 @@ int eos_fdt_validate_sized(const void *fdt_blob, uint32_t avail)
     return 0;
 }
 
-int eos_fdt_validate(const void *fdt_blob)
-{
-    if (!fdt_blob) return -1;
-    /* No length to check against, so take the blob's own claim. Documented in
-     * the header as a warrant the caller has to make good. */
-    const fdt_header_t *hdr = (const fdt_header_t *)fdt_blob;
-    return eos_fdt_validate_sized(fdt_blob, fdt32_to_cpu(hdr->totalsize));
-}
 
 int eos_fdt_load(uint32_t flash_addr, void *dest, uint32_t max_size)
 {
@@ -86,7 +78,7 @@ int eos_fdt_load(uint32_t flash_addr, void *dest, uint32_t max_size)
 
     /* Only the header has been copied so far, but max_size is what the caller
      * really owns, so that is the bound the blob has to satisfy. */
-    int rc = eos_fdt_validate_sized(dest, max_size);
+    int rc = eos_fdt_validate(dest, max_size);
     if (rc != 0) return rc;
 
     const fdt_header_t *hdr = (const fdt_header_t *)dest;
@@ -98,16 +90,16 @@ int eos_fdt_load(uint32_t flash_addr, void *dest, uint32_t max_size)
     return 0;
 }
 
-int eos_fdt_get_prop_sized(const void *fdt, uint32_t fdt_len,
-                           const char *node_path, const char *prop_name,
-                           void *buf, uint32_t *buf_len)
+int eos_fdt_get_prop(const void *fdt, uint32_t fdt_len,
+                     const char *node_path, const char *prop_name,
+                     void *buf, uint32_t *buf_len)
 {
     if (!fdt || !node_path || !prop_name || !buf || !buf_len) return -1;
 
     /* The blob is whatever was in flash. Every offset below comes out of its
      * header, so none of them can be trusted until validate() has bounded
      * them against both totalsize and the length the caller actually owns. */
-    int vrc = eos_fdt_validate_sized(fdt, fdt_len);
+    int vrc = eos_fdt_validate(fdt, fdt_len);
     if (vrc != 0) return vrc;
 
     const fdt_header_t *hdr = (const fdt_header_t *)fdt;
@@ -212,15 +204,6 @@ int eos_fdt_get_prop_sized(const void *fdt, uint32_t fdt_len,
     return -5;
 }
 
-int eos_fdt_get_prop(const void *fdt, const char *node_path,
-                      const char *prop_name, void *buf, uint32_t *buf_len)
-{
-    if (!fdt) return -1;
-    /* Trusts the blob's own totalsize; see the warrant in the header. */
-    const fdt_header_t *hdr = (const fdt_header_t *)fdt;
-    return eos_fdt_get_prop_sized(fdt, fdt32_to_cpu(hdr->totalsize),
-                                  node_path, prop_name, buf, buf_len);
-}
 
 void eos_fdt_pass_to_kernel(uint32_t dtb_addr)
 {

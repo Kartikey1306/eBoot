@@ -33,7 +33,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
     uint32_t len = (uint32_t)size;
 
-    if (eos_fdt_validate_sized(data, len) != 0) {
+    if (eos_fdt_validate(data, len) != 0) {
         return 0;
     }
 
@@ -43,18 +43,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
      * are exercised as well as the match. */
     unsigned char buf[256];
     uint32_t buf_len = sizeof buf;
-    (void)eos_fdt_get_prop_sized(data, len, "/chosen", "bootargs",
+    (void)eos_fdt_get_prop(data, len, "/chosen", "bootargs",
                                  buf, &buf_len);
 
     buf_len = sizeof buf;
-    (void)eos_fdt_get_prop_sized(data, len, "/", "compatible",
+    (void)eos_fdt_get_prop(data, len, "/", "compatible",
                                  buf, &buf_len);
 
     /* A one-byte buffer drives the -7 truncation path, which is the branch
      * that reports a length back to the caller. */
     unsigned char tiny[1];
     buf_len = sizeof tiny;
-    (void)eos_fdt_get_prop_sized(data, len, "/", "bootargs", tiny, &buf_len);
+    (void)eos_fdt_get_prop(data, len, "/", "bootargs", tiny, &buf_len);
 
     return 0;
 }
