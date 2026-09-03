@@ -90,7 +90,6 @@ add_library(eboot_core STATIC
     core/fw_transport_uart.c
     core/rtos_boot.c
     core/rtos_params.c
-    core/fdt_loader.c
     core/boot_menu.c
     core/device_table.c
     core/runtime_services.c
