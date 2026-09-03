@@ -289,6 +289,16 @@ static int point_is_identity(gf p[4])
     return diff == 0;
 }
 
+static void scalarbase(gf r[4], const uint8_t *s)
+{
+    gf q[4];
+    fe_copy16(q[0], BX);
+    fe_copy16(q[1], BY);
+    fe_copy16(q[2], gf1);
+    fe_mul(q[3], BX, BY);
+    scalarmult(r, q, s);
+}
+
 /* Reject a public key outside the prime-order subgroup.
  *
  * Decoding a point is not enough. Ed25519 has eight points of low order, and
@@ -307,48 +317,12 @@ static int point_is_identity(gf p[4])
  * A arrives negated from unpackneg(). [L](-A) = -[L]A and the identity is its
  * own negation, so neither condition is affected by the sign.
  *
- * Formulation taken from eBoot#57 by @muhammadburhandevv-hub, which reached
- * this before I did and states both conditions in one expression.
+ * Formulation from eBoot#57 by @muhammadburhandevv-hub. #86 landed an
+ * equivalent key_has_prime_order() alongside it; the two merged cleanly
+ * into one file with two identical point_is_identity() definitions, which
+ * did not compile. This keeps #57's function, which is the one the
+ * verifier calls, and #86's reasoning, which is the fuller of the two.
  */
-static int key_has_prime_order(gf A[4])
-{
-    uint8_t order_l[32];
-    gf q[4], multiple[4];
-    int i;
-
-    for (i = 0; i < 32; i++)
-        order_l[i] = (uint8_t)ORDER_L[i];
-    for (i = 0; i < 4; i++)
-        fe_copy16(q[i], A[i]);
-
-    scalarmult(multiple, q, order_l);
-    return point_is_identity(multiple) && !point_is_identity(A);
-}
-
-static void scalarbase(gf r[4], const uint8_t *s)
-{
-    gf q[4];
-    fe_copy16(q[0], BX);
-    fe_copy16(q[1], BY);
-    fe_copy16(q[2], gf1);
-    fe_mul(q[3], BX, BY);
-    scalarmult(r, q, s);
-}
-
-static int point_is_identity(gf p[4])
-{
-    uint8_t encoded[32];
-    point_pack(encoded, p);
-
-    uint8_t diff = (uint8_t)(encoded[0] ^ 1U);
-    for (int i = 1; i < 32; i++)
-        diff |= encoded[i];
-    return diff == 0;
-}
-
-/* Public keys must be non-identity points in Ed25519's prime-order subgroup.
- * Merely decoding a point is insufficient: an identity or torsion key can
- * make the verification equation true without knowledge of a private key. */
 static int public_key_is_valid_subgroup(gf public_key[4])
 {
     uint8_t order_l[32];

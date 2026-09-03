@@ -132,15 +132,21 @@ EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, flags) == 24,
                       "flags must stay at offset 24");
 EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, sig_len) == 61,
                       "sig_len must stay at offset 61");
-EOS_IMG_STATIC_ASSERT(offsetof(eos_image_header_t, reserved) == 62,
-                      "reserved[] must stay at offset 62");
+/* reserved[30] became tlv_len (2) + tlv_hash (28). Offset 62 is pinned by the
+ * tlv_len assert above, so the old reserved[] offset assert is gone rather
+ * than renamed -- keeping both would pin one byte range twice. */
 
 /* Field widths. An offset assert cannot see a field growing into padding that
- * happens to keep every later offset -- reserved[] absorbs exactly that. */
+ * happens to keep every later offset -- the tlv_len/tlv_hash pair absorbs
+ * exactly that, which is why their combined width is pinned too. */
 EOS_IMG_STATIC_ASSERT(sizeof(((eos_image_header_t *)0)->hash) == 32,
                       "hash[] is 32 bytes on the wire");
-EOS_IMG_STATIC_ASSERT(sizeof(((eos_image_header_t *)0)->reserved) == 30,
-                      "reserved[] is 30 bytes on the wire");
+EOS_IMG_STATIC_ASSERT(sizeof(((eos_image_header_t *)0)->tlv_len) +
+                      sizeof(((eos_image_header_t *)0)->tlv_hash) == 30,
+                      "tlv_len and tlv_hash together fill the 30 bytes "
+                      "reserved[] used to occupy");
+EOS_IMG_STATIC_ASSERT(sizeof(((eos_image_header_t *)0)->tlv_hash) == 28,
+                      "tlv_hash[] is 28 bytes on the wire");
 EOS_IMG_STATIC_ASSERT(sizeof(((eos_image_header_t *)0)->signature) == 64,
                       "signature[] is 64 bytes on the wire");
 
