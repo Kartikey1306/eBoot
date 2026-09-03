@@ -140,6 +140,19 @@ static int get_prop_exact(const blob_t *b, const char *node, const char *prop,
     return rc;
 }
 
+/* Same, but through the length-carrying entry point, passing the real
+ * allocation size rather than letting the blob declare it. */
+static int get_prop_sized_exact(const blob_t *b, const char *node,
+                                const char *prop, void *out, uint32_t *out_len)
+{
+    unsigned char *heap = malloc(b->len);
+    ASSERT(heap != NULL);
+    memcpy(heap, b->bytes, b->len);
+    int rc = eos_fdt_get_prop_sized(heap, b->len, node, prop, out, out_len);
+    free(heap);
+    return rc;
+}
+
 /* ---- Tests ------------------------------------------------------------ */
 
 static void test_valid_tree_round_trips(void)
@@ -268,6 +281,62 @@ static void test_null_arguments_are_rejected(void)
     ASSERT(eos_fdt_get_prop(b.bytes, "/", "bootargs", out, NULL) != 0);
 }
 
+/* The mirror image of the offset tests above. Those inflate an offset and
+ * leave totalsize honest; this leaves every offset internally consistent and
+ * inflates totalsize itself. Nothing in the header contradicts anything else,
+ * so a check that bounds the blob against its own totalsize has nothing to
+ * catch -- the only thing that knows better is the caller's allocation. */
+static void test_an_inflated_totalsize_is_rejected_when_the_length_is_known(void)
+{
+    blob_t b; build_valid(&b, "ro");
+    uint32_t honest = b.len;
+    set_field(&b, FIELD(totalsize), 0x100000);
+    b.len = honest;   /* the allocation stays what it really was */
+
+    char out[16]; uint32_t len = sizeof out;
+
+    /* Told the truth about the buffer, the parser refuses it. */
+    ASSERT(eos_fdt_validate_sized(b.bytes, honest) != 0);
+    ASSERT(get_prop_sized_exact(&b, "/", "bootargs", out, &len) != 0);
+}
+
+/* The unsized entry points cannot catch the blob above, and this pins that so
+ * the difference is a documented contract rather than an accident. If this
+ * ever starts returning non-zero, eos_fdt_validate() has learned the length
+ * from somewhere and the warrant in the header should be removed. */
+static void test_the_unsized_entry_point_trusts_the_blobs_own_totalsize(void)
+{
+    blob_t b; build_valid(&b, "ro");
+    set_field(&b, FIELD(totalsize), b.len + 0x10000);
+    ASSERT(eos_fdt_validate(b.bytes) == 0);
+}
+
+/* A property that does not fit used to be copied short and reported as a
+ * success, so a clipped bootargs was indistinguishable from a complete one. */
+static void test_a_property_too_large_for_the_buffer_is_not_truncated(void)
+{
+    blob_t b; build_valid(&b, "root=/dev/mmcblk0p2 rw quiet");
+
+    char out[8];
+    uint32_t len = sizeof out;
+    memset(out, 0xAA, sizeof out);
+
+    ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) == -7);
+    /* and it reports what the caller would need to allocate */
+    ASSERT(len == sizeof "root=/dev/mmcblk0p2 rw quiet");
+    /* nothing was written into the short buffer */
+    ASSERT(out[0] == (char)0xAA);
+}
+
+static void test_a_property_that_exactly_fits_still_succeeds(void)
+{
+    blob_t b; build_valid(&b, "ro");
+    char out[3]; uint32_t len = sizeof out;
+    ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) == 0);
+    ASSERT(len == 3);
+    ASSERT(strcmp(out, "ro") == 0);
+}
+
 int main(void)
 {
     printf("=== eBootloader FDT Loader Tests ===\n");
@@ -281,6 +350,10 @@ int main(void)
     RUN(test_property_nameoff_past_the_strings_block_is_rejected);
     RUN(test_unterminated_node_name_is_rejected);
     RUN(test_null_arguments_are_rejected);
-    printf("\n%d/10 tests passed\n", tests_passed);
+    RUN(test_an_inflated_totalsize_is_rejected_when_the_length_is_known);
+    RUN(test_the_unsized_entry_point_trusts_the_blobs_own_totalsize);
+    RUN(test_a_property_too_large_for_the_buffer_is_not_truncated);
+    RUN(test_a_property_that_exactly_fits_still_succeeds);
+    printf("\n%d tests passed\n", tests_passed);
     return 0;
 }
