@@ -48,6 +48,14 @@ if(EBLDR_BUILD_FUZZ)
         LINK_FLAGS "${FUZZ_FLAGS}"
     )
 
+    # --- fuzz_fdt ---
+    add_executable(fuzz_fdt fuzz_fdt.c)
+    target_link_libraries(fuzz_fdt PRIVATE eboot_core)
+    set_target_properties(fuzz_fdt PROPERTIES
+        COMPILE_FLAGS "${FUZZ_FLAGS}"
+        LINK_FLAGS "${FUZZ_FLAGS}"
+    )
+
     # --- fuzz_bootctl ---
     add_executable(fuzz_bootctl fuzz_bootctl.c)
     target_link_libraries(fuzz_bootctl PRIVATE eboot_core)
@@ -56,5 +64,5 @@ if(EBLDR_BUILD_FUZZ)
         LINK_FLAGS "${FUZZ_FLAGS}"
     )
 
-    message(STATUS "  Fuzz targets: fuzz_image_verify, fuzz_recovery_protocol, fuzz_fw_update, fuzz_crypto, fuzz_bootctl")
+    message(STATUS "  Fuzz targets: fuzz_image_verify, fuzz_recovery_protocol, fuzz_fw_update, fuzz_crypto, fuzz_bootctl, fuzz_fdt")
 endif()
