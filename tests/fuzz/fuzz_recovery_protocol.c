@@ -39,10 +39,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
      * a write that leaves the slot or wraps. Anything it accepts is asserted
      * against the same arithmetic, in wider types that cannot wrap. */
     if (eos_recovery_write_in_range(base, slot_size, offset, len) == EOS_OK) {
-        uint64_t end = (uint64_t)base + (uint64_t)offset + (uint64_t)len;
+        /* The last byte written is base + offset + len - 1, not
+         * base + offset + len. An oracle using the one-past-the-end address
+         * rejects a write whose final byte lands exactly on 0xFFFFFFFF --
+         * legal, and accepted by the function under test. That off-by-one
+         * made this harness trap on valid input rather than find a defect. */
+        uint64_t last = (uint64_t)base + (uint64_t)offset + (uint64_t)len - 1u;
         if (base == 0 || slot_size == 0 || len == 0 ||
             (uint64_t)offset + (uint64_t)len > (uint64_t)slot_size ||
-            end > 0xFFFFFFFFULL) {
+            last > 0xFFFFFFFFULL) {
             __builtin_trap();   /* accepted a write it had to reject */
         }
     }
