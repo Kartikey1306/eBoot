@@ -31,6 +31,7 @@ static int tests_passed = 0;
     static void name(void); \
     static void run_##name(void) { \
         printf("  %-54s ", #name); \
+        tests_run++; \
         name(); \
         tests_passed++; \
         printf("[PASS]\n"); \
@@ -47,6 +48,8 @@ static int tests_passed = 0;
 /* ---- Simulated board: OTP only, with a scriptable write result ---- */
 
 #define OTP_SIZE 0x400
+/* Mirrors core/secure_boot.c; the anchor lives at a fixed OTP offset. */
+#define OTP_KEY_HASH_OFFSET 0x100
 #define FLASH_BASE 0x08000000U
 #define FLASH_SIZE 0x800
 static uint8_t sim_flash[FLASH_SIZE];
@@ -227,6 +230,42 @@ TEST(test_secure_boot_proceeds_when_the_debug_lock_succeeds)
     ASSERT(otp_write_calls == 1);
 }
 
+/* Step 4's two new refusals have NO test here, deliberately, and this note is
+ * the record of why rather than an omission to be discovered later.
+ *
+ * Reaching step 4 requires passing step 3, which is a real Ed25519 signature
+ * over the header prefix checked against the keystore anchor. A fixture for
+ * that is buildable -- the keystore ships RFC 8032 TEST 1's public key and
+ * the matching private key is in the RFC -- but the machinery for it belongs
+ * to #88 (tools/gen_signed_image_fixture.py), not here.
+ *
+ * I wrote the obvious test first and it was worthless: with
+ * require_signature = true and an unsigned fixture the boot fails at step 3,
+ * returning the same EOS_SBOOT_ERR_SIGNATURE that step 4 returns, so it
+ * passed against the unfixed code too. Verified that by reverting step 4 and
+ * watching it still pass. A test that cannot fail is worse than none, so it
+ * is not in this file.
+ *
+ * The counter-check below is what this file can honestly assert: the change
+ * does not refuse a boot it should allow.
+ */
+TEST(test_the_ordinary_boot_path_is_unaffected_by_the_step_4_change)
+{
+    provide_otp_write = 1;
+    reset_fixture();                /* leaves the OTP anchor all zero */
+    stage_bootable_image();
+
+    eos_secure_boot_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.image_addr        = FLASH_BASE;
+    cfg.require_signature = false;
+    cfg.lock_debug        = false;
+
+    uint32_t entry = 0;
+    ASSERT(eos_secure_boot(&cfg, &entry) == EOS_SBOOT_OK);
+    ASSERT(entry == 0x20000001U);
+}
+
 int main(void)
 {
     printf("=== eBootloader: Secure Boot Debug-Lock Policy Tests ===\n\n");
@@ -237,8 +276,8 @@ int main(void)
     run_test_secure_boot_refuses_when_the_debug_lock_cannot_be_taken();
     run_test_the_same_image_boots_when_no_debug_lock_is_asked_for();
     run_test_secure_boot_proceeds_when_the_debug_lock_succeeds();
+    run_test_the_ordinary_boot_path_is_unaffected_by_the_step_4_change();
 
-    tests_run = 6;
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
 }

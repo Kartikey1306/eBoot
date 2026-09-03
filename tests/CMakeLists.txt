@@ -124,7 +124,8 @@ if(VALGRIND)
                       test_multicore test_board_registry test_slot_manager
                       test_boot_log test_image_verify test_image_abi
                       test_recovery test_slot_size_bounds test_fw_transport
-                      test_tlv_auth)
+                      test_tlv_auth test_secure_boot_policy test_fdt_loader
+                      test_fw_decrypt)
         add_test(
             NAME valgrind_${TEST_NAME}
             COMMAND ${VALGRIND} ${VALGRIND_OPTS} $<TARGET_FILE:eboot_${TEST_NAME}>
