@@ -11,9 +11,6 @@
 #include <stddef.h>
 #include <string.h>
 
-/* Deepest node path eos_fdt_get_prop() will resolve. */
-#define FDT_MAX_PATH_DEPTH 16
-
 /* Big-endian to host conversion */
 static uint32_t fdt32_to_cpu(uint32_t be)
 {
@@ -48,6 +45,36 @@ static bool fdt_block_in_bounds(uint32_t off, uint32_t len, uint32_t totalsize)
     if (off < sizeof(fdt_header_t)) return false;
     if (len > totalsize) return false;
     return off <= totalsize - len;
+}
+
+/* Does a device tree node name match one path component?
+ *
+ * Real node names carry a unit address -- `uart@40011000`, `serial@10000000`
+ * -- while a path is usually written without one. Exact string equality meant
+ * /soc/uart resolved only against trees whose peripherals happen to be named
+ * without an address, which is to say against hand-built test blobs and not
+ * against any actual DTB. (/ and /chosen were unaffected: by convention they
+ * carry no unit address, which is why the bootargs path this parser exists to
+ * serve kept working and the gap went unnoticed.)
+ *
+ * A component containing no '@' matches the name up to its '@', so both
+ * /soc/uart and /soc/uart@40011000 resolve. A component that does contain one
+ * is compared in full, so an explicit address still selects exactly the node
+ * asked for -- which matters when a tree has several of the same peripheral.
+ */
+static bool fdt_name_matches(const char *name, const char *comp,
+                             uint32_t comp_len)
+{
+    uint32_t full = (uint32_t)strlen(name);
+
+    if (memchr(comp, '@', comp_len) != NULL) {
+        return full == comp_len && strncmp(name, comp, comp_len) == 0;
+    }
+
+    const char *at = memchr(name, '@', full);
+    uint32_t bare = at ? (uint32_t)(at - name) : full;
+
+    return bare == comp_len && strncmp(name, comp, comp_len) == 0;
 }
 
 int eos_fdt_validate(const void *fdt_blob, uint32_t avail)
@@ -183,8 +210,7 @@ int eos_fdt_get_prop(const void *fdt, uint32_t fdt_len,
              * merely by its own name. */
             if (depth >= 2 && matched == depth - 2 && depth - 2 < ncomp) {
                 uint32_t want = comp_len[depth - 2];
-                if ((uint32_t)strlen(name) == want &&
-                    strncmp(name, comp[depth - 2], want) == 0) {
+                if (fdt_name_matches(name, comp[depth - 2], want)) {
                     matched = depth - 1;
                 }
             }
