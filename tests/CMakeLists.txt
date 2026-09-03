@@ -90,11 +90,6 @@ add_executable(eboot_test_keystore unit/test_keystore.c)
 target_link_libraries(eboot_test_keystore PRIVATE eboot_core)
 add_test(NAME test_keystore COMMAND eboot_test_keystore)
 
-# --- test_fw_decrypt: Streaming AES-256-GCM firmware decryption ---
-add_executable(eboot_test_fw_decrypt unit/test_fw_decrypt.c)
-target_link_libraries(eboot_test_fw_decrypt PRIVATE eboot_core)
-add_test(NAME test_fw_decrypt COMMAND eboot_test_fw_decrypt)
-
 # --- test_rollback: Anti-rollback security counter ---
 add_executable(eboot_test_rollback unit/test_rollback.c)
 target_link_libraries(eboot_test_rollback PRIVATE eboot_core)
@@ -114,6 +109,14 @@ add_test(NAME test_storage COMMAND eboot_test_storage)
 add_executable(eboot_test_ecc unit/test_ecc.c)
 target_link_libraries(eboot_test_ecc PRIVATE eboot_core)
 add_test(NAME test_ecc COMMAND eboot_test_ecc)
+
+# --- test_fw_decrypt: Streaming AES-256-GCM firmware decryption ---
+# Anchored here rather than after test_keystore: #82 inserts its own
+# triple at that anchor, and whichever of the two landed second would have
+# conflicted for no reason other than where the block was placed.
+add_executable(eboot_test_fw_decrypt unit/test_fw_decrypt.c)
+target_link_libraries(eboot_test_fw_decrypt PRIVATE eboot_core)
+add_test(NAME test_fw_decrypt COMMAND eboot_test_fw_decrypt)
 
 # --- Valgrind test targets ---
 find_program(VALGRIND valgrind)

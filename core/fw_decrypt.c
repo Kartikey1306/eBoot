@@ -8,7 +8,10 @@
  *
  * Provides decrypt-in-place for encrypted firmware updates.
  * Decryption key is retrieved from OTP/eFuse via the HAL.
- * Falls back to HAL hw_aes_decrypt if available.
+ *
+ * Software-only. The HAL's hw_aes_decrypt hook is deliberately not used --
+ * see the rationale above eos_fw_decrypt_update() for why its one-shot
+ * signature cannot express a streaming AEAD.
  */
 
 #include "eos_fw_decrypt.h"
