@@ -50,33 +50,27 @@ typedef struct {
  */
 
 /**
- * Validate a blob whose length is known.
+ * Validate a blob.
  *
  * @param avail  bytes actually readable at @p fdt_blob.
  *
- * Prefer this to eos_fdt_validate(). Every bound inside the header — the
- * struct and string block offsets and sizes — is expressed relative to the
- * header's own totalsize field, which is attacker-controlled. Checking those
- * against each other proves only that the blob is internally consistent; it
- * says nothing about how many bytes are really mapped. Passing the real
- * length is what turns the consistency check into a bounds check.
+ * There is deliberately no length-free form. Every bound inside the header --
+ * the struct and string block offsets and sizes -- is expressed relative to
+ * the header's own totalsize field, which is attacker-controlled; checking
+ * those against each other proves the blob is internally consistent and says
+ * nothing about how many bytes are really mapped. An earlier revision kept a
+ * one-argument wrapper that read totalsize and passed it as the bound, which
+ * is an out-of-bounds read on a short buffer before any check has run. A
+ * documented caller warrant is not a check, and an exported unsafe twin in a
+ * TCB header is a future boot-path caller reintroducing the bug with no
+ * compiler complaint.
  */
-int eos_fdt_validate_sized(const void *fdt_blob, uint32_t avail);
-
-/**
- * Validate a blob, trusting its own totalsize.
- *
- * The caller warrants that at least totalsize bytes are readable at
- * @p fdt_blob. This cannot be checked from here, which is why
- * eos_fdt_validate_sized() exists; use this only where the blob's extent has
- * already been established by other means.
- */
-int eos_fdt_validate(const void *fdt_blob);
+int eos_fdt_validate(const void *fdt_blob, uint32_t avail);
 
 int eos_fdt_load(uint32_t flash_addr, void *dest, uint32_t max_size);
 
 /**
- * Read a property, on a blob whose length is known.
+ * Read a property.
  *
  * @param fdt_len  bytes actually readable at @p fdt.
  * @param buf_len  in: capacity of @p buf. out: bytes written on success, or
@@ -87,16 +81,9 @@ int eos_fdt_load(uint32_t flash_addr, void *dest, uint32_t max_size);
  * and a silently clipped value that reports success loses whatever sat at the
  * end of the string.
  */
-int eos_fdt_get_prop_sized(const void *fdt, uint32_t fdt_len,
-                           const char *node_path, const char *prop_name,
-                           void *buf, uint32_t *buf_len);
-
-/**
- * Read a property, trusting the blob's own totalsize. Same warrant as
- * eos_fdt_validate().
- */
-int eos_fdt_get_prop(const void *fdt, const char *node_path,
-                      const char *prop_name, void *buf, uint32_t *buf_len);
+int eos_fdt_get_prop(const void *fdt, uint32_t fdt_len,
+                     const char *node_path, const char *prop_name,
+                     void *buf, uint32_t *buf_len);
 
 void eos_fdt_pass_to_kernel(uint32_t dtb_addr);
 

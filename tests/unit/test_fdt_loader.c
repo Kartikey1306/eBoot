@@ -135,20 +135,7 @@ static int get_prop_exact(const blob_t *b, const char *node, const char *prop,
     unsigned char *heap = malloc(b->len);
     ASSERT(heap != NULL);
     memcpy(heap, b->bytes, b->len);
-    int rc = eos_fdt_get_prop(heap, node, prop, out, out_len);
-    free(heap);
-    return rc;
-}
-
-/* Same, but through the length-carrying entry point, passing the real
- * allocation size rather than letting the blob declare it. */
-static int get_prop_sized_exact(const blob_t *b, const char *node,
-                                const char *prop, void *out, uint32_t *out_len)
-{
-    unsigned char *heap = malloc(b->len);
-    ASSERT(heap != NULL);
-    memcpy(heap, b->bytes, b->len);
-    int rc = eos_fdt_get_prop_sized(heap, b->len, node, prop, out, out_len);
+    int rc = eos_fdt_get_prop(heap, b->len, node, prop, out, out_len);
     free(heap);
     return rc;
 }
@@ -158,7 +145,7 @@ static int get_prop_sized_exact(const blob_t *b, const char *node,
 static void test_valid_tree_round_trips(void)
 {
     blob_t b; build_valid(&b, "ro");
-    ASSERT(eos_fdt_validate(b.bytes) == 0);
+    ASSERT(eos_fdt_validate(b.bytes, b.len) == 0);
 
     char out[16]; uint32_t len = sizeof out;
     ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) == 0);
@@ -178,7 +165,7 @@ static void test_struct_offset_past_the_blob_is_rejected(void)
     blob_t b; build_valid(&b, "ro");
     set_field(&b, FIELD(off_dt_struct), 0x100000);
 
-    ASSERT(eos_fdt_validate(b.bytes) != 0);
+    ASSERT(eos_fdt_validate(b.bytes, b.len) != 0);
     char out[16]; uint32_t len = sizeof out;
     ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) != 0);
 }
@@ -188,7 +175,7 @@ static void test_strings_offset_past_the_blob_is_rejected(void)
     blob_t b; build_valid(&b, "ro");
     set_field(&b, FIELD(off_dt_strings), 0x100000);
 
-    ASSERT(eos_fdt_validate(b.bytes) != 0);
+    ASSERT(eos_fdt_validate(b.bytes, b.len) != 0);
     char out[16]; uint32_t len = sizeof out;
     ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) != 0);
 }
@@ -198,7 +185,7 @@ static void test_struct_size_running_past_the_blob_is_rejected(void)
     blob_t b; build_valid(&b, "ro");
     set_field(&b, FIELD(size_dt_struct), 0xFFFFFF00U);
 
-    ASSERT(eos_fdt_validate(b.bytes) != 0);
+    ASSERT(eos_fdt_validate(b.bytes, b.len) != 0);
     char out[16]; uint32_t len = sizeof out;
     ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) != 0);
 }
@@ -207,7 +194,7 @@ static void test_totalsize_below_the_header_is_rejected(void)
 {
     blob_t b; build_valid(&b, "ro");
     set_field(&b, FIELD(totalsize), 8);
-    ASSERT(eos_fdt_validate(b.bytes) != 0);
+    ASSERT(eos_fdt_validate(b.bytes, b.len) != 0);
 }
 
 static void test_property_length_past_the_struct_block_is_rejected(void)
@@ -273,12 +260,12 @@ static void test_null_arguments_are_rejected(void)
 {
     blob_t b; build_valid(&b, "ro");
     char out[16]; uint32_t len = sizeof out;
-    ASSERT(eos_fdt_validate(NULL) != 0);
-    ASSERT(eos_fdt_get_prop(NULL, "/", "bootargs", out, &len) != 0);
-    ASSERT(eos_fdt_get_prop(b.bytes, NULL, "bootargs", out, &len) != 0);
-    ASSERT(eos_fdt_get_prop(b.bytes, "/", NULL, out, &len) != 0);
-    ASSERT(eos_fdt_get_prop(b.bytes, "/", "bootargs", NULL, &len) != 0);
-    ASSERT(eos_fdt_get_prop(b.bytes, "/", "bootargs", out, NULL) != 0);
+    ASSERT(eos_fdt_validate(NULL, 0) != 0);
+    ASSERT(eos_fdt_get_prop(NULL, b.len, "/", "bootargs", out, &len) != 0);
+    ASSERT(eos_fdt_get_prop(b.bytes, b.len, NULL, "bootargs", out, &len) != 0);
+    ASSERT(eos_fdt_get_prop(b.bytes, b.len, "/", NULL, out, &len) != 0);
+    ASSERT(eos_fdt_get_prop(b.bytes, b.len, "/", "bootargs", NULL, &len) != 0);
+    ASSERT(eos_fdt_get_prop(b.bytes, b.len, "/", "bootargs", out, NULL) != 0);
 }
 
 /* The mirror image of the offset tests above. Those inflate an offset and
@@ -296,19 +283,8 @@ static void test_an_inflated_totalsize_is_rejected_when_the_length_is_known(void
     char out[16]; uint32_t len = sizeof out;
 
     /* Told the truth about the buffer, the parser refuses it. */
-    ASSERT(eos_fdt_validate_sized(b.bytes, honest) != 0);
-    ASSERT(get_prop_sized_exact(&b, "/", "bootargs", out, &len) != 0);
-}
-
-/* The unsized entry points cannot catch the blob above, and this pins that so
- * the difference is a documented contract rather than an accident. If this
- * ever starts returning non-zero, eos_fdt_validate() has learned the length
- * from somewhere and the warrant in the header should be removed. */
-static void test_the_unsized_entry_point_trusts_the_blobs_own_totalsize(void)
-{
-    blob_t b; build_valid(&b, "ro");
-    set_field(&b, FIELD(totalsize), b.len + 0x10000);
-    ASSERT(eos_fdt_validate(b.bytes) == 0);
+    ASSERT(eos_fdt_validate(b.bytes, honest) != 0);
+    ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) != 0);
 }
 
 /* A property that does not fit used to be copied short and reported as a
@@ -351,7 +327,6 @@ int main(void)
     RUN(test_unterminated_node_name_is_rejected);
     RUN(test_null_arguments_are_rejected);
     RUN(test_an_inflated_totalsize_is_rejected_when_the_length_is_known);
-    RUN(test_the_unsized_entry_point_trusts_the_blobs_own_totalsize);
     RUN(test_a_property_too_large_for_the_buffer_is_not_truncated);
     RUN(test_a_property_that_exactly_fits_still_succeeds);
     printf("\n%d tests passed\n", tests_passed);
