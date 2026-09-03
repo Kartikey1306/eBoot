@@ -124,6 +124,45 @@ jobs:
           retention-days: 90
 
   # ── Static Analysis ───────────────────────────────────────────────────────
+  # tests/fuzz/ was compiled by nothing. EBLDR_BUILD_FUZZ defaults OFF and no
+  # job set it, so five harnesses sat in the tree for as long as they have
+  # existed without ever being linked -- and three of them named functions
+  # that do not exist. A harness that is never built cannot fail to build.
+  #
+  # This does not fuzz. It builds every harness and runs each briefly over its
+  # own generated inputs, which is what catches a harness that no longer
+  # compiles, no longer links, or crashes at once. A real campaign belongs in
+  # a scheduled workflow.
+  #
+  # EBLDR_BUILD_TESTS is needed alongside EBLDR_BUILD_FUZZ: tests/fuzz/ is
+  # added from tests/CMakeLists.txt, so the fuzz flag alone configures cleanly
+  # and builds nothing -- this job would pass having compiled no harness.
+  fuzz-build:
+    name: Fuzz Harness Build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build fuzz targets
+        run: |
+          set -euo pipefail
+          cmake -B build/fuzz -DEBLDR_BUILD_TESTS=ON -DEBLDR_BUILD_FUZZ=ON \
+                -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/fuzz -j"$(nproc)"
+      - name: Smoke-run each harness
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          harnesses=(build/fuzz/tests/fuzz/fuzz_*)
+          if [ ${#harnesses[@]} -eq 0 ]; then
+            echo "::error::EBLDR_BUILD_FUZZ=ON produced no harnesses"
+            exit 1
+          fi
+          echo "built ${#harnesses[@]} harnesses"
+          for f in "${harnesses[@]}"; do
+            echo "=== $(basename "$f") ==="
+            "$f" -max_total_time=5 -print_final_stats=1
+          done
+
   static-analysis:
     name: Static Analysis (cppcheck + clang-tidy)
     runs-on: ubuntu-22.04
