@@ -18,8 +18,9 @@
  * copy that does not reach the other shows up as two different digests.
  *
  * The eos-side twin is tests/test_ed25519_contract.c in embeddedos-org/eos.
- * Both files pin the same digest below, and both fail if the corpus they
- * were generated from no longer produces it.
+ * Both files pin the same digest below and recompute it over the vector bytes
+ * at run time, so either an edited vector or a changed generator fails on
+ * whichever side it lands.
  */
 
 #include "eos_crypto_boot.h"
@@ -53,6 +54,31 @@
 #define EOS_ED25519_CONTRACT_EXPECTED_COUNT     76
 #define EOS_ED25519_CONTRACT_EXPECTED_ACCEPTS   3
 
+/* SHA-256 over the corpus, in the generator's serialisation order. */
+static void contract_digest(char out_hex[65])
+{
+    eos_sha256_ctx_t sha;
+    uint8_t digest[32];
+    int i, j;
+
+    eos_sha256_init(&sha);
+    for (i = 0; i < EOS_ED25519_CONTRACT_COUNT; i++) {
+        const eos_ed25519_contract_vector_t *v =
+            &eos_ed25519_contract_vectors[i];
+        uint8_t accept = (uint8_t)v->expect_accept;
+
+        eos_sha256_update(&sha, v->public_key, sizeof v->public_key);
+        eos_sha256_update(&sha, v->signature, sizeof v->signature);
+        eos_sha256_update(&sha, v->message, v->message_len);
+        eos_sha256_update(&sha, &accept, 1);
+    }
+    eos_sha256_final(&sha, digest);
+
+    for (j = 0; j < 32; j++)
+        snprintf(out_hex + j * 2, 3, "%02x", digest[j]);
+    out_hex[64] = '\0';
+}
+
 int main(void)
 {
     unsigned failed = 0, accepted = 0, refused = 0;
@@ -61,15 +87,39 @@ int main(void)
     printf("  digest: %s\n", EOS_ED25519_CONTRACT_DIGEST);
     printf("  count:  %d\n\n", EOS_ED25519_CONTRACT_COUNT);
 
-    if (strcmp(EOS_ED25519_CONTRACT_DIGEST,
-               EOS_ED25519_CONTRACT_EXPECTED) != 0) {
+    /* Recomputed over the vector bytes, not read from the header.
+     *
+     * The previous version compared EOS_ED25519_CONTRACT_DIGEST against
+     * EOS_ED25519_CONTRACT_EXPECTED -- two string literals, one of them
+     * written into the same generated header as the data. Nothing hashed the
+     * vectors, so editing a committed vector changed the data and left the
+     * digest it was compared against untouched, and the suite still reported
+     * all 76 behaving as specified. The guard fired only when someone re-ran
+     * the generator: the file it protects was the one file it could not see.
+     *
+     * Serialisation matches tools/gen_ed25519_contract_vectors.py: for each
+     * vector in order, public_key[32] || signature[64] ||
+     * message[message_len] || (uint8_t)expect_accept. */
+    char computed[65];
+    contract_digest(computed);
+
+    if (strcmp(computed, EOS_ED25519_CONTRACT_EXPECTED) != 0) {
         printf("[FAIL] corpus digest changed\n"
                "       expected %s\n"
                "       got      %s\n"
-               "       The generator was edited, or the two repos' copies\n"
-               "       have diverged. Re-derive, confirm eos and eBoot agree,\n"
-               "       then update the pin in BOTH.\n",
-               EOS_ED25519_CONTRACT_EXPECTED, EOS_ED25519_CONTRACT_DIGEST);
+               "       A vector was edited, the generator was changed, or the\n"
+               "       two repos' copies have diverged. Re-derive, confirm eos\n"
+               "       and eBoot agree, then update the pin in BOTH.\n",
+               EOS_ED25519_CONTRACT_EXPECTED, computed);
+        return 1;
+    }
+
+    /* The header's own claim must agree too. If it does not, the committed
+     * corpus and the header that describes it came from different runs. */
+    if (strcmp(computed, EOS_ED25519_CONTRACT_DIGEST) != 0) {
+        printf("[FAIL] the header's digest (%s) does not describe the vectors "
+               "it ships with (%s)\n",
+               EOS_ED25519_CONTRACT_DIGEST, computed);
         return 1;
     }
 
