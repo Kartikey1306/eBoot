@@ -102,18 +102,8 @@ jobs:
       # fail-open shape ci.yml's gate was written to remove, in a job whose
       # name a maintainer would plausibly require. This form cannot fall out
       # of step with `needs:`.
+      - uses: actions/checkout@v4
       - name: Every job in this workflow must have succeeded
         env:
           RESULTS: ${{ toJSON(needs) }}
-        run: |
-          printf '%s\n' "$RESULTS"
-          bad=$(printf '%s' "$RESULTS" | jq -r '
-            to_entries[]
-            | select(.value.result != "success")
-            | "  \(.key): \(.value.result)"')
-          if [ -n "$bad" ]; then
-            echo "::error::Gate failed. These jobs did not succeed:"
-            printf '%s\n' "$bad"
-            exit 1
-          fi
-          echo "All jobs succeeded."
+        run: printf '%s' "$RESULTS" | .github/scripts/ci-gate-check.sh

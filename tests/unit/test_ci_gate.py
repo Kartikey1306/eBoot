@@ -13,6 +13,9 @@ required check does not cover.
 
 import re
 
+import json
+import subprocess
+
 import yaml
 import pytest
 from pathlib import Path
@@ -243,14 +246,59 @@ def test_no_aggregating_gate_ignores_part_of_its_needs():
     )
 
 
-def test_gate_fails_on_any_non_success_result(jobs):
-    """A skipped or cancelled job must fail the gate, not pass it."""
-    steps = jobs[GATE_ID]["steps"]
-    script = "\n".join(str(s.get("run", "")) for s in steps)
+# ---- the rule itself, executed rather than pattern-matched -------------------
+#
+# This test used to grep the gate's `run:` text for `!= "success"` and
+# `exit 1`. That is a string match on an implementation, not a check of
+# behaviour: it passes for those tokens sitting in a comment or an unreachable
+# branch, and fails for a correct rewrite that expresses the same rule
+# differently. The rule now lives in .github/scripts/ci-gate-check.sh and is
+# run here against real inputs, so the fork experiment that first demonstrated
+# it does not have to be repeated by hand.
 
-    assert '!= "success"' in script, (
-        "the gate must require success specifically. Checking only for "
-        "'failure' lets a skipped or cancelled job through, which is the "
-        "fail-open shape this repository has been removing elsewhere"
-    )
-    assert "exit 1" in script, "the gate must actually fail the job"
+GATE_SCRIPT = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "ci-gate-check.sh"
+
+
+def _run_gate(payload):
+    return subprocess.run(
+        ["bash", str(GATE_SCRIPT)], input=payload,
+        capture_output=True, text=True,
+    ).returncode
+
+
+def test_gate_script_exists():
+    assert GATE_SCRIPT.is_file(), f"{GATE_SCRIPT} is missing"
+
+
+@pytest.mark.parametrize("results,expected", [
+    ({"a": {"result": "success"}}, 0),
+    ({"a": {"result": "success"}, "b": {"result": "success"}}, 0),
+    ({"a": {"result": "failure"}}, 1),
+    ({"a": {"result": "skipped"}}, 1),
+    ({"a": {"result": "cancelled"}}, 1),
+    ({"a": {"result": "success"}, "b": {"result": "skipped"}}, 1),
+])
+def test_gate_script_accepts_only_all_success(results, expected):
+    assert _run_gate(json.dumps(results)) == expected
+
+
+@pytest.mark.parametrize("payload", ["", "null"])
+def test_gate_script_refuses_an_empty_context(payload):
+    """No results is not the same as no failures."""
+    assert _run_gate(payload) == 1
+
+
+def test_every_gate_invokes_the_shared_script():
+    """One rule in one place, so the tests above cover every gate."""
+    for workflow, display in REQUIRED_CHECKS.items():
+        doc = yaml.safe_load((WORKFLOWS_DIR / workflow).read_text(encoding="utf-8"))
+        job = next(j for j in doc["jobs"].values()
+                   if j.get("name") == display)
+        if not job.get("needs"):
+            continue
+        script = "\n".join(str(st.get("run", "")) for st in job.get("steps", []))
+        assert "ci-gate-check.sh" in script, (
+            f"{workflow}: {display!r} does not call "
+            f".github/scripts/ci-gate-check.sh, so its behaviour is not "
+            f"covered by the tests above."
+        )
