@@ -8,6 +8,7 @@
 
 #include "eos_fdt_loader.h"
 #include "eos_hal.h"
+#include <stddef.h>
 #include <string.h>
 
 /* Big-endian to host conversion */
@@ -26,6 +27,17 @@ static uint32_t fdt_read_u32(const uint8_t *ptr)
     return fdt32_to_cpu(val);
 }
 
+/* Header fields, read the same way the struct block is read. The blob may
+ * be unaligned -- fuzz input, a buffer inside a larger message, a copy at an
+ * odd offset -- and dereferencing a cast fdt_header_t* is a misaligned load
+ * on strict-alignment targets, the same fault class this parser exists to
+ * avoid. One rule for the whole blob: every multi-byte read goes through
+ * memcpy. */
+static uint32_t fdt_hdr_u32(const void *blob, size_t field_off)
+{
+    return fdt_read_u32((const uint8_t *)blob + field_off);
+}
+
 /* Does [off, off+len) sit inside a blob of totalsize bytes, without the
  * addition wrapping? Every offset in the header is attacker-controlled. */
 static bool fdt_block_in_bounds(uint32_t off, uint32_t len, uint32_t totalsize)
@@ -39,16 +51,18 @@ int eos_fdt_validate(const void *fdt_blob, uint32_t avail)
 {
     if (!fdt_blob) return -1;
     if (avail < sizeof(fdt_header_t)) return -6;
-    const fdt_header_t *hdr = (const fdt_header_t *)fdt_blob;
-    if (fdt32_to_cpu(hdr->magic) != FDT_MAGIC) return -2;
-    if (fdt32_to_cpu(hdr->version) < 16) return -3;
+    if (fdt_hdr_u32(fdt_blob, offsetof(fdt_header_t, magic)) != FDT_MAGIC)
+        return -2;
+    if (fdt_hdr_u32(fdt_blob, offsetof(fdt_header_t, version)) < 16)
+        return -3;
 
     /* Before anything else: the blob does not get to say how big it is. Every
      * bound below is relative to totalsize, so without this the checks only
      * prove the header is self-consistent — a 40-byte buffer claiming a 1 MiB
      * totalsize with agreeing block offsets passes all of them, and the walk
      * then runs a megabyte past the allocation. */
-    if (fdt32_to_cpu(hdr->totalsize) > avail) return -6;
+    if (fdt_hdr_u32(fdt_blob, offsetof(fdt_header_t, totalsize)) > avail)
+        return -6;
 
     /* magic and version alone say nothing about where the blob claims its
      * blocks are. The struct and string offsets are read straight out of
@@ -56,13 +70,15 @@ int eos_fdt_validate(const void *fdt_blob, uint32_t avail)
      * above could still point them anywhere; eos_fdt_get_prop walked off the
      * end of a 40-byte allocation and took a bus fault. Reject the blob here
      * instead, because this is the gate every path goes through. */
-    uint32_t totalsize = fdt32_to_cpu(hdr->totalsize);
+    uint32_t totalsize = fdt_hdr_u32(fdt_blob, offsetof(fdt_header_t, totalsize));
     if (totalsize < sizeof(fdt_header_t)) return -6;
-    if (!fdt_block_in_bounds(fdt32_to_cpu(hdr->off_dt_struct),
-                             fdt32_to_cpu(hdr->size_dt_struct), totalsize))
+    if (!fdt_block_in_bounds(fdt_hdr_u32(fdt_blob, offsetof(fdt_header_t, off_dt_struct)),
+                             fdt_hdr_u32(fdt_blob, offsetof(fdt_header_t, size_dt_struct)),
+                             totalsize))
         return -6;
-    if (!fdt_block_in_bounds(fdt32_to_cpu(hdr->off_dt_strings),
-                             fdt32_to_cpu(hdr->size_dt_strings), totalsize))
+    if (!fdt_block_in_bounds(fdt_hdr_u32(fdt_blob, offsetof(fdt_header_t, off_dt_strings)),
+                             fdt_hdr_u32(fdt_blob, offsetof(fdt_header_t, size_dt_strings)),
+                             totalsize))
         return -6;
     return 0;
 }
@@ -81,8 +97,7 @@ int eos_fdt_load(uint32_t flash_addr, void *dest, uint32_t max_size)
     int rc = eos_fdt_validate(dest, max_size);
     if (rc != 0) return rc;
 
-    const fdt_header_t *hdr = (const fdt_header_t *)dest;
-    uint32_t total = fdt32_to_cpu(hdr->totalsize);
+    uint32_t total = fdt_hdr_u32(dest, offsetof(fdt_header_t, totalsize));
     if (total > max_size) return -4;
 
     /* Copy full DTB */
@@ -102,11 +117,12 @@ int eos_fdt_get_prop(const void *fdt, uint32_t fdt_len,
     int vrc = eos_fdt_validate(fdt, fdt_len);
     if (vrc != 0) return vrc;
 
-    const fdt_header_t *hdr = (const fdt_header_t *)fdt;
-    const uint8_t *dt_struct = (const uint8_t *)fdt + fdt32_to_cpu(hdr->off_dt_struct);
-    const char *dt_strings = (const char *)fdt + fdt32_to_cpu(hdr->off_dt_strings);
-    uint32_t struct_size = fdt32_to_cpu(hdr->size_dt_struct);
-    uint32_t strings_size = fdt32_to_cpu(hdr->size_dt_strings);
+    const uint8_t *dt_struct = (const uint8_t *)fdt +
+        fdt_hdr_u32(fdt, offsetof(fdt_header_t, off_dt_struct));
+    const char *dt_strings = (const char *)fdt +
+        fdt_hdr_u32(fdt, offsetof(fdt_header_t, off_dt_strings));
+    uint32_t struct_size = fdt_hdr_u32(fdt, offsetof(fdt_header_t, size_dt_struct));
+    uint32_t strings_size = fdt_hdr_u32(fdt, offsetof(fdt_header_t, size_dt_strings));
 
     /* Simple linear search through struct block */
     uint32_t offset = 0;
@@ -197,8 +213,17 @@ int eos_fdt_get_prop(const void *fdt, uint32_t fdt_len,
         }
         case FDT_END:
             return -5; /* Property not found */
-        default:
+        case FDT_NOP:
+            /* Legal padding; the spec allows it anywhere between tokens. */
             break;
+        default:
+            /* Refuse, do not resynchronise. Skipping an unknown tag and
+             * treating whatever sits 4 bytes on as the next token meant a
+             * struct block of arbitrary bytes parsed to completion. Every
+             * read stayed bounded, so this was not memory-unsafe -- but a
+             * parser in the TCB that walks garbage to a clean "not found"
+             * is quietly accepting input it does not understand. */
+            return -6;
         }
     }
     return -5;

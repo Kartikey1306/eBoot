@@ -313,6 +313,93 @@ static void test_a_property_that_exactly_fits_still_succeeds(void)
     ASSERT(strcmp(out, "ro") == 0);
 }
 
+/* An unrecognised tag used to be skipped -- the walk resynchronised 4 bytes
+ * on and a struct block of arbitrary bytes parsed to a clean "not found".
+ * Bounded, but a TCB parser that walks garbage to completion is accepting
+ * input it does not understand. Now only FDT_NOP passes. */
+static void test_a_garbage_tag_is_refused_not_skipped(void)
+{
+    blob_t b;
+    memset(&b, 0, sizeof(b));
+    b.len = sizeof(fdt_header_t);
+    uint32_t off_struct = b.len;
+    append_be32(&b, FDT_BEGIN_NODE); append_padded(&b, "");
+    append_be32(&b, 0xDEADBEEFU);          /* not a token */
+    append_be32(&b, FDT_END_NODE);
+    append_be32(&b, FDT_END);
+    uint32_t size_struct = b.len - off_struct;
+    uint32_t off_strings = b.len;
+    append_padded(&b, "bootargs");
+    uint32_t size_strings = b.len - off_strings;
+    fdt_header_t *h = (fdt_header_t *)b.bytes;
+    put_be32((unsigned char *)&h->magic, FDT_MAGIC);
+    put_be32((unsigned char *)&h->version, 17);
+    put_be32((unsigned char *)&h->last_comp_version, 16);
+    put_be32((unsigned char *)&h->totalsize, b.len);
+    put_be32((unsigned char *)&h->off_dt_struct, off_struct);
+    put_be32((unsigned char *)&h->size_dt_struct, size_struct);
+    put_be32((unsigned char *)&h->off_dt_strings, off_strings);
+    put_be32((unsigned char *)&h->size_dt_strings, size_strings);
+
+    char out[16]; uint32_t len = sizeof out;
+    ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) == -6);
+}
+
+/* And the one legal unknown, FDT_NOP, is padding the spec allows anywhere
+ * between tokens -- refusing it would reject real device trees. */
+static void test_nop_padding_does_not_break_resolution(void)
+{
+    blob_t b;
+    memset(&b, 0, sizeof(b));
+    b.len = sizeof(fdt_header_t);
+    uint32_t off_struct = b.len;
+    append_be32(&b, FDT_NOP);
+    append_be32(&b, FDT_BEGIN_NODE); append_padded(&b, "");
+    append_be32(&b, FDT_NOP);
+    append_be32(&b, FDT_PROP); append_be32(&b, 3); append_be32(&b, 0);
+    append_padded(&b, "ro");
+    append_be32(&b, FDT_NOP);
+    append_be32(&b, FDT_END_NODE);
+    append_be32(&b, FDT_END);
+    uint32_t size_struct = b.len - off_struct;
+    uint32_t off_strings = b.len;
+    append_padded(&b, "bootargs");
+    uint32_t size_strings = b.len - off_strings;
+    fdt_header_t *h = (fdt_header_t *)b.bytes;
+    put_be32((unsigned char *)&h->magic, FDT_MAGIC);
+    put_be32((unsigned char *)&h->version, 17);
+    put_be32((unsigned char *)&h->last_comp_version, 16);
+    put_be32((unsigned char *)&h->totalsize, b.len);
+    put_be32((unsigned char *)&h->off_dt_struct, off_struct);
+    put_be32((unsigned char *)&h->size_dt_struct, size_struct);
+    put_be32((unsigned char *)&h->off_dt_strings, off_strings);
+    put_be32((unsigned char *)&h->size_dt_strings, size_strings);
+
+    char out[16]; uint32_t len = sizeof out;
+    ASSERT(get_prop_exact(&b, "/", "bootargs", out, &len) == 0);
+    ASSERT(strcmp(out, "ro") == 0);
+}
+
+/* The blob arrives wherever it arrives -- fuzz input, a buffer inside a
+ * larger message -- and nothing promises 4-byte alignment. Header fields go
+ * through the same memcpy rule as the struct block now; this pins it by
+ * parsing from an odd offset, which UBSan's alignment check turns into a
+ * hard failure if a direct member load ever comes back. */
+static void test_an_unaligned_blob_parses(void)
+{
+    blob_t b; build_valid(&b, "ro");
+
+    unsigned char *heap = malloc(b.len + 1);
+    ASSERT(heap != NULL);
+    memcpy(heap + 1, b.bytes, b.len);
+
+    char out[16]; uint32_t len = sizeof out;
+    ASSERT(eos_fdt_validate(heap + 1, b.len) == 0);
+    ASSERT(eos_fdt_get_prop(heap + 1, b.len, "/", "bootargs", out, &len) == 0);
+    ASSERT(strcmp(out, "ro") == 0);
+    free(heap);
+}
+
 int main(void)
 {
     printf("=== eBootloader FDT Loader Tests ===\n");
@@ -329,6 +416,9 @@ int main(void)
     RUN(test_an_inflated_totalsize_is_rejected_when_the_length_is_known);
     RUN(test_a_property_too_large_for_the_buffer_is_not_truncated);
     RUN(test_a_property_that_exactly_fits_still_succeeds);
+    RUN(test_a_garbage_tag_is_refused_not_skipped);
+    RUN(test_nop_padding_does_not_break_resolution);
+    RUN(test_an_unaligned_blob_parses);
     printf("\n%d tests passed\n", tests_passed);
     return 0;
 }
