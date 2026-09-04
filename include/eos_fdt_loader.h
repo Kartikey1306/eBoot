@@ -19,6 +19,7 @@ extern "C" {
 #define FDT_BEGIN_NODE      0x00000001U
 #define FDT_END_NODE        0x00000002U
 #define FDT_PROP            0x00000003U
+#define FDT_NOP             0x00000004U
 #define FDT_END             0x00000009U
 
 typedef struct {
@@ -46,7 +47,6 @@ typedef struct {
  *   -5  no such node or property
  *   -6  the blob is malformed: an offset or length escapes it
  *   -7  the property is larger than the caller's buffer (see below)
- *   -8  the node path is deeper than FDT_MAX_PATH_DEPTH components
  */
 
 /**

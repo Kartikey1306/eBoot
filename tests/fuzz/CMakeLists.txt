@@ -14,7 +14,7 @@ if(EBLDR_BUILD_FUZZ)
         return()
     endif()
 
-    set(FUZZ_FLAGS "-fsanitize=fuzzer,address -fno-omit-frame-pointer")
+    set(FUZZ_FLAGS "-fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer")
 
     # --- fuzz_image_verify ---
     add_executable(fuzz_image_verify fuzz_image_verify.c)
