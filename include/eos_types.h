@@ -149,6 +149,7 @@ typedef struct {
 #define EOS_LOG_AUTH_SUCCESS       0x20
 #define EOS_LOG_AUTH_FAIL          0x21
 #define EOS_LOG_AUTH_UNPROVISIONED 0x22
+#define EOS_LOG_AUTH_NO_ENTROPY    0x23
 
 /* Maximum constants */
 #define EOS_MAX_BOOT_ATTEMPTS   3

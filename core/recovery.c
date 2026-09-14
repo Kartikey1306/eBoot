@@ -137,15 +137,19 @@ static int recovery_handle_auth(void)
     }
 
     if (auth_state == RCVR_AUTH_NONE) {
-        /* Generate challenge using RNG */
+        /* The challenge is the only thing that stops a captured response
+         * from being replayed, so it has to come from an entropy source.
+         * A board without one gets no challenge at all: a fallback seeded
+         * from the millisecond tick lets a client reset the board and
+         * retry, at no cost, until a challenge it already holds an answer
+         * for comes back. Refusing here is fail-closed in the same way as
+         * an unreadable or unprovisioned secret below. */
         int rc = eos_hal_rng_get(challenge, RCVR_CHALLENGE_SIZE);
         if (rc != EOS_OK) {
-            /* Fallback: use tick-based pseudo-random */
-            uint32_t seed = eos_hal_get_tick_ms();
-            for (int i = 0; i < RCVR_CHALLENGE_SIZE; i++) {
-                seed = seed * 1103515245 + 12345;
-                challenge[i] = (uint8_t)(seed >> 16);
-            }
+            auth_fail_count++;
+            auth_state = RCVR_AUTH_NONE;
+            eos_boot_log_append(EOS_LOG_AUTH_NO_ENTROPY, EOS_SLOT_NONE, auth_fail_count);
+            return recovery_send_nack();
         }
 
         /* Send challenge to client */

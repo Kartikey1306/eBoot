@@ -449,6 +449,52 @@ TEST(test_write_rejects_offset_past_slot_end)
     ASSERT(memcmp(&sim_flash[SIM_SLOT_A_ADDR], payload, sizeof(payload)) == 0);
 }
 
+/* Without an entropy source there is no challenge worth sending. The old
+ * fallback derived all 32 bytes from the millisecond tick at the moment the
+ * AUTH command was handled, so a client that had captured one (challenge,
+ * response) pair could reset the board and retry -- seeing each challenge
+ * before having to answer it, at no cost in failure count -- until the
+ * captured one came back. No shipped board port provides rng_get, so this is
+ * every board in the tree. The server must refuse the AUTH outright, log why,
+ * and keep refusing the write that follows. */
+TEST(test_auth_refuses_when_the_board_has_no_entropy_source)
+{
+    eos_board_ops_t no_rng = sim_ops;
+    no_rng.rng_get = NULL;
+    eos_hal_init(&no_rng);
+    eos_boot_log_init(0);
+
+    uint8_t pkt[8];
+    put_pkt(pkt, RCVR_CMD_AUTH, 0, 0, 0);
+    script_append(pkt, sizeof(pkt));           /* -> must be refused, not answered */
+    put_pkt(pkt, RCVR_CMD_WRITE, EOS_SLOT_A, 4, 0);
+    script_append(pkt, sizeof(pkt));
+    uint8_t payload[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
+    script_append(payload, sizeof(payload));   /* only consumed if accepted */
+
+    eos_bootctl_t bctl;
+    eos_bootctl_init_defaults(&bctl);
+    if (setjmp(exit_jmp) == 0) {
+        eos_recovery_enter(&bctl);
+    }
+
+    /* [0]=auth verdict, [1]=write verdict: no 32-byte challenge in between. */
+    ASSERT(out_len >= 2);
+    ASSERT(out_buf[0] == RCVR_NACK);
+    ASSERT(out_buf[1] == RCVR_NACK);
+    ASSERT(sim_flash[SIM_SLOT_A_ADDR] == 0xFF);
+
+    /* The refusal is recorded as EOS_LOG_AUTH_NO_ENTROPY, not as a client
+     * failure, so a field log tells the integrator what is missing. */
+    bool logged = false;
+    for (uint32_t i = 0; i < eos_boot_log_get_head(); i++) {
+        eos_boot_log_entry_t entry;
+        ASSERT(eos_boot_log_read(i, &entry) == EOS_OK);
+        if (entry.event == EOS_LOG_AUTH_NO_ENTROPY) logged = true;
+    }
+    ASSERT(logged);
+}
+
 static void fill_header(eos_image_header_t *hdr, uint32_t image_size)
 {
     memset(hdr, 0, sizeof(*hdr));
@@ -507,6 +553,7 @@ int main(void)
     run_test_auth_refuses_an_unprovisioned_secret();
     run_test_auth_accepts_a_provisioned_secret();
     run_test_write_refuses_a_slot_the_board_leaves_unmapped();
+    run_test_auth_refuses_when_the_board_has_no_entropy_source();
     run_test_verify_rejects_oversized_image_before_reading_payload();
     printf("%d/%d tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
