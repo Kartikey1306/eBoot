@@ -76,7 +76,17 @@ void ebldr_stage0_main(void)
         while (off < stage1_expected_size) {
             uint32_t chunk = stage1_expected_size - off;
             if (chunk > sizeof(buf)) chunk = sizeof(buf);
-            eos_hal_flash_read(stage1_addr + off, buf, chunk);
+            /* A read that fails leaves buf holding the previous chunk, or
+             * whatever the stack held, and the result was hashed as if it
+             * were stage-1. That happened to mismatch, so the failure mode
+             * was recovery with the wrong reason; a read failure is its
+             * own reason and is refused as such, like eos_crypto_verify_image()
+             * refuses it in core. */
+            if (eos_hal_flash_read(stage1_addr + off, buf, chunk) != EOS_OK) {
+                eos_boot_log_append(EOS_LOG_BOOT_FAIL, EOS_SLOT_NONE, 0xBAD2);
+                eos_recovery_enter(&bctl);
+                return;
+            }
             eos_sha256_update(&sha_ctx, buf, chunk);
             off += chunk;
         }
