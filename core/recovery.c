@@ -186,6 +186,23 @@ static int recovery_handle_auth(void)
             return recovery_send_nack();
         }
 
+        /* Unprogrammed fuses read back as all zeros or all ones, and both
+         * are public. A board whose recovery secret was never provisioned
+         * must not authenticate anyone: the keystore already refuses an
+         * all-zero key for the same reason. Branch-free so the check does
+         * not leak which value the fuses hold. */
+        uint8_t all_zero = 0, all_ones = 0xFF;
+        for (size_t i = 0; i < sizeof(shared_secret); i++) {
+            all_zero |= shared_secret[i];
+            all_ones &= shared_secret[i];
+        }
+        if (all_zero == 0 || all_ones == 0xFF) {
+            auth_fail_count++;
+            auth_state = RCVR_AUTH_NONE;
+            eos_boot_log_append(0x22, EOS_SLOT_NONE, auth_fail_count); /* AUTH_UNPROVISIONED */
+            return recovery_send_nack();
+        }
+
         eos_sha256_update(&ctx, shared_secret, sizeof(shared_secret));
         eos_sha256_final(&ctx, expected);
 
@@ -286,8 +303,11 @@ static int recovery_handle_write(eos_slot_t slot, uint32_t offset, uint16_t len)
 
     /* offset/len come straight from the wire; without this check a
      * recovery client can write past the slot boundary into the other
-     * slot, boot-control blocks, or the boot log. */
-    if (slot_size == 0 || (uint64_t)offset + len > (uint64_t)slot_size)
+     * slot, boot-control blocks, or the boot log. The rule lives in
+     * eos_recovery_write_in_range() -- the function the unit tests drive --
+     * and it also refuses a slot the board leaves unmapped (base 0), which
+     * would otherwise turn "write at offset" into "write at address". */
+    if (eos_recovery_write_in_range(base, slot_size, offset, len) != EOS_OK)
         return recovery_send_nack();
 
     recovery_send_ack();
