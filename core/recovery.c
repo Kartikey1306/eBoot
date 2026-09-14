@@ -182,7 +182,7 @@ static int recovery_handle_auth(void)
             /* Fail authentication if OTP secret is unreadable */
             auth_fail_count++;
             auth_state = RCVR_AUTH_NONE;
-            eos_boot_log_append(0x21, EOS_SLOT_NONE, auth_fail_count); /* AUTH_FAIL */
+            eos_boot_log_append(EOS_LOG_AUTH_FAIL, EOS_SLOT_NONE, auth_fail_count);
             return recovery_send_nack();
         }
 
@@ -199,7 +199,7 @@ static int recovery_handle_auth(void)
         if (all_zero == 0 || all_ones == 0xFF) {
             auth_fail_count++;
             auth_state = RCVR_AUTH_NONE;
-            eos_boot_log_append(0x22, EOS_SLOT_NONE, auth_fail_count); /* AUTH_UNPROVISIONED */
+            eos_boot_log_append(EOS_LOG_AUTH_UNPROVISIONED, EOS_SLOT_NONE, auth_fail_count);
             return recovery_send_nack();
         }
 
@@ -216,12 +216,12 @@ static int recovery_handle_auth(void)
                                      EOS_SHA256_DIGEST_SIZE) == 0) {
             auth_state = RCVR_AUTH_AUTHENTICATED;
             auth_fail_count = 0;
-            eos_boot_log_append(0x20, EOS_SLOT_NONE, 0); /* AUTH_SUCCESS */
+            eos_boot_log_append(EOS_LOG_AUTH_SUCCESS, EOS_SLOT_NONE, 0);
             return recovery_send_ack();
         } else {
             auth_fail_count++;
             auth_state = RCVR_AUTH_NONE;
-            eos_boot_log_append(0x21, EOS_SLOT_NONE, auth_fail_count); /* AUTH_FAIL */
+            eos_boot_log_append(EOS_LOG_AUTH_FAIL, EOS_SLOT_NONE, auth_fail_count);
             return recovery_send_nack();
         }
     }

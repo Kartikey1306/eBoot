@@ -143,6 +143,12 @@ typedef struct {
 #define EOS_LOG_FACTORY_RESET   0x0A
 #define EOS_LOG_WATCHDOG_RESET  0x0B
 #define EOS_LOG_BOOT_FAIL       0x0C
+/* Recovery-session authentication. Emitted by core/recovery.c; decoded by
+ * tools/uart_recovery.py, whose table tests/unit/test_boot_log_event_names.py
+ * keeps in step with this list. */
+#define EOS_LOG_AUTH_SUCCESS       0x20
+#define EOS_LOG_AUTH_FAIL          0x21
+#define EOS_LOG_AUTH_UNPROVISIONED 0x22
 
 /* Maximum constants */
 #define EOS_MAX_BOOT_ATTEMPTS   3
