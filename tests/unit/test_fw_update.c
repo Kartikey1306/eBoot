@@ -139,6 +139,13 @@ static void fill_payload(uint8_t *payload)
         payload[i] = (uint8_t)(i * 7u + 1u);
 }
 
+/* Coupling: the signed prefix (the first EOS_IMG_SIGNED_LEN = 92 bytes of
+ * the header, plus the TLV area whose hash sits inside it) is built here
+ * AND in tools/gen_fw_update_test_sigs.py, which signs it. Changing any
+ * field in it means changing the generator's copy too and re-running
+ *     python3 tools/gen_fw_update_test_sigs.py > tests/vectors/fw_update_test_sigs.h
+ * tests/unit/test_fw_update_test_sigs.py fails until the committed header
+ * is regenerated from the generator. */
 static void build_image(uint8_t *out, uint32_t sec_ver)
 {
     uint8_t payload[PAYLOAD_SIZE];
