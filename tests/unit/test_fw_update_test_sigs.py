@@ -40,6 +40,20 @@ REGENERATE = ("python3 tools/gen_fw_update_test_sigs.py "
               "> tests/vectors/fw_update_test_sigs.h")
 
 
+def mismatch_message(expected, actual):
+    """What a stale header is reported as: the regenerate command, then a
+    unified diff of generator output against the committed file."""
+    diff = "".join(difflib.unified_diff(
+        expected.decode("ascii", "replace").splitlines(keepends=True),
+        actual.decode("ascii", "replace").splitlines(keepends=True),
+        fromfile="tools/gen_fw_update_test_sigs.py (stdout)",
+        tofile="tests/vectors/fw_update_test_sigs.h (committed)",
+    ))
+    return ("tests/vectors/fw_update_test_sigs.h differs from what "
+            "tools/gen_fw_update_test_sigs.py emits; regenerate it with\n"
+            "  " + REGENERATE + "\n" + diff)
+
+
 def test_committed_header_is_the_generator_output():
     result = subprocess.run(
         [sys.executable, str(GENERATOR)],
@@ -48,14 +62,18 @@ def test_committed_header_is_the_generator_output():
     expected = result.stdout
     actual = HEADER.read_bytes()
 
-    if actual != expected:
-        diff = "".join(difflib.unified_diff(
-            expected.decode("ascii", "replace").splitlines(keepends=True),
-            actual.decode("ascii", "replace").splitlines(keepends=True),
-            fromfile="tools/gen_fw_update_test_sigs.py (stdout)",
-            tofile="tests/vectors/fw_update_test_sigs.h (committed)",
-        ))
-        pytest.fail(
-            "tests/vectors/fw_update_test_sigs.h differs from what "
-            "tools/gen_fw_update_test_sigs.py emits; regenerate it with\n"
-            "  " + REGENERATE + "\n" + diff)
+    assert actual == expected, mismatch_message(expected, actual)
+
+
+def test_a_stale_header_is_reported_with_the_command_and_the_diff():
+    """The failure path of the test above, driven directly: one changed
+    byte must show up as the changed line, under the command that fixes it."""
+    expected = b"static const unsigned char k[4] = {\n    0x67,0xf0,\n};\n"
+    actual = b"static const unsigned char k[4] = {\n    0x68,0xf0,\n};\n"
+
+    message = mismatch_message(expected, actual)
+
+    assert REGENERATE in message
+    assert "-    0x67,0xf0," in message
+    assert "+    0x68,0xf0," in message
+    assert "tests/vectors/fw_update_test_sigs.h (committed)" in message
