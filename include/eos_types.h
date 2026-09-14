@@ -154,6 +154,7 @@ typedef struct {
  * jump to stage-1. Named here so a boot log can be read without the source. */
 #define EBLDR_FAIL_STAGE1_HASH  0xBAD1  /* stage-1 hash does not match the build-time value */
 #define EBLDR_FAIL_STAGE1_READ  0xBAD2  /* the flash read of stage-1 failed */
+#define EBLDR_FAIL_STAGE1_NO_IMAGE 0xBAD3 /* the build embedded no stage-1 image to verify against */
 
 /* ---------------- RTOS Boot Types (Phase 2) ---------------- */
 

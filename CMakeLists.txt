@@ -384,7 +384,10 @@ if(NOT EBLDR_BOARD STREQUAL "none")
         endif()
 
         if(EXISTS "${_LD_STAGE1}")
-            add_executable(eboot_firmware stage1/main.c)
+            # stage1/reset_entry.c owns the vector table the linker script keeps;
+            # without it (and the script's ENTRY) the link had nothing to anchor
+            # and the image was empty. See tools/embed_stage1_hash.py.
+            add_executable(eboot_firmware stage1/main.c stage1/reset_entry.c)
             target_include_directories(eboot_firmware PRIVATE
                 ${EBLDR_INCLUDE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/boards/${EBLDR_BOARD}

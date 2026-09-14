@@ -69,6 +69,18 @@ void ebldr_stage0_main(void)
         extern const uint8_t stage1_expected_hash[32];
         extern const uint32_t stage1_expected_size;
 
+        /* The build embeds these from the stage-1 binary it linked. A size
+         * of zero means it linked nothing (tools/embed_stage1_hash.py now
+         * refuses that, but a bootloader does not trust its own build to
+         * have been correct): the loop below would run zero iterations,
+         * the digest of nothing would match the digest of nothing, and
+         * IMAGE_VALID would be recorded for an image that does not exist. */
+        if (stage1_expected_size == 0) {
+            eos_boot_log_append(EOS_LOG_BOOT_FAIL, EOS_SLOT_NONE, EBLDR_FAIL_STAGE1_NO_IMAGE);
+            eos_recovery_enter(&bctl);
+            return;
+        }
+
         uint8_t computed[32];
         eos_sha256_ctx_t sha_ctx;
         eos_sha256_init(&sha_ctx);
