@@ -4,7 +4,7 @@ title: Install path verifies the signature before anti-rollback
 status: Proposed
 date: 2026-09-14
 deciders: Architecture Council, eBoot maintainers
-source: EmbeddedOS Master Design v2.0 §8.1, §15; ADR-011 (eOTA firmware/update contract)
+source: EmbeddedOS Master Design v2.0 §8.1 (boot order) and §15 (update flow), as cited in the architecture review of #115; ADR-011 (eOTA firmware/update contract)
 ---
 
 # ADR-020 — Install path verifies the signature before anti-rollback
@@ -19,8 +19,8 @@ the order of its checks:
 - #104 made the install path verify the image signature unconditionally, no longer gated
   on the header's own `sig_type`.
 
-Neither PR was written against a base that contained the other, so neither says which
-check comes first. The master design orders BOOT as Verify Manifest → Verify Image →
+#103's authored commits all predate #104's merge, and #104 was written without #103's
+counter check in place, so neither says which check comes first. The master design orders BOOT as Verify Manifest → Verify Image →
 Check Version Policy (§8.1). Its update flow (§15) is Download → Verify → Install and
 never places the anti-rollback check. The ordering the install path uses therefore
 existed only in a PR body.
