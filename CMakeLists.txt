@@ -46,19 +46,35 @@ set(EBLDR_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 # anyone's firmware. So a Release build of a real board refuses to configure
 # until it is given a key, or told in so many words that it is not a release.
 include(cmake/ProductionKey.cmake)
+#
+# What counts as a release. The gate used to match the literal string
+# "Release" and nothing else, so MinSizeRel -- the ordinary build type for a
+# bootloader -- RelWithDebInfo, "release", "RELEASE" and an unset build type
+# all configured a real board around it. Only Debug is not release-shaped:
+# every other value is optimised, an unset value on a cross build still gets
+# -Os from this file, and a multi-config generator has no build type at all at
+# configure time. So the gate asks "is this Debug?" and refuses everything
+# else, rather than asking "is this spelled Release?".
+string(TOUPPER "${CMAKE_BUILD_TYPE}" _ebldr_build_type)
 if(NOT EBLDR_PRODUCTION_KEY STREQUAL "")
     ebldr_write_production_key_source("${EBLDR_PRODUCTION_KEY}"
         "${CMAKE_BINARY_DIR}/generated/production_key.c")
     set(EBLDR_PRODUCTION_KEY_SOURCE "${CMAKE_BINARY_DIR}/generated/production_key.c")
     message(STATUS "  Trust anchor: production key from EBLDR_PRODUCTION_KEY")
-elseif(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT EBLDR_BOARD STREQUAL "none"
-       AND NOT EBLDR_ALLOW_DEV_KEY)
+elseif(NOT EBLDR_BOARD STREQUAL "none" AND NOT EBLDR_ALLOW_DEV_KEY
+       AND NOT _ebldr_build_type STREQUAL "DEBUG")
+    if(CMAKE_BUILD_TYPE STREQUAL "")
+        set(_ebldr_build_desc "build with no CMAKE_BUILD_TYPE")
+    else()
+        set(_ebldr_build_desc "${CMAKE_BUILD_TYPE} build")
+    endif()
     message(FATAL_ERROR
-        "EBLDR_PRODUCTION_KEY is not set: a Release build of board '${EBLDR_BOARD}' "
-        "would compile in the RFC 8032 test key as its trust anchor, and anyone can "
-        "sign for that key. Pass -DEBLDR_PRODUCTION_KEY=<64 hex characters> (the raw "
-        "Ed25519 public key), or, for a bring-up or CI build that will never reach a "
-        "device, -DEBLDR_ALLOW_DEV_KEY=ON.")
+        "EBLDR_PRODUCTION_KEY is not set: a ${_ebldr_build_desc} of board "
+        "'${EBLDR_BOARD}' would compile in the RFC 8032 test key as its trust "
+        "anchor, and anyone can sign for that key. Only a Debug build is exempt. "
+        "Pass -DEBLDR_PRODUCTION_KEY=<64 hex characters> (the raw Ed25519 public "
+        "key), or, for a bring-up or CI build that will never reach a device, "
+        "-DEBLDR_ALLOW_DEV_KEY=ON.")
 else()
     message(STATUS "  Trust anchor: RFC 8032 test key (development only; see core/keystore.c)")
 endif()

@@ -58,12 +58,36 @@ def first_error(stderr):
     return next((b for b in blocks if b.startswith("CMake Error")), "")
 
 
-def test_release_board_build_refuses_without_a_key():
-    result, _ = configure("-DCMAKE_BUILD_TYPE=Release", "-DEBLDR_BOARD=stm32f4")
+# Every build type that is not Debug is release-shaped: the optimised types
+# under every spelling CMake accepts, and no build type at all -- a cross build
+# still gets -Os from CMakeLists.txt, and a multi-config generator has no type
+# at configure time. The gate used to match the literal "Release" only, and
+# the other five configured a real board around it.
+RELEASE_SHAPED = ["Release", "RelWithDebInfo", "MinSizeRel",
+                  "release", "RELEASE", None]
+
+
+@pytest.mark.parametrize("build_type", RELEASE_SHAPED,
+                         ids=[t or "unset" for t in RELEASE_SHAPED])
+def test_release_shaped_board_build_refuses_without_a_key(build_type):
+    defs = ["-DEBLDR_BOARD=stm32f4"]
+    if build_type is not None:
+        defs.append("-DCMAKE_BUILD_TYPE=" + build_type)
+    result, generated = configure(*defs)
     assert result.returncode != 0
     assert GATE_MESSAGE in result.stderr
     # The gate, not a missing toolchain or a board port, is what stops it.
     assert GATE_MESSAGE in first_error(result.stderr), result.stderr
+    assert "Only a Debug build is exempt" in result.stderr
+    assert generated is None
+
+
+@pytest.mark.parametrize("build_type", ["Debug", "debug", "DEBUG"])
+def test_debug_board_build_is_the_one_exemption(build_type):
+    result, _ = configure("-DCMAKE_BUILD_TYPE=" + build_type,
+                          "-DEBLDR_BOARD=stm32f4")
+    assert result.returncode == 0, result.stderr
+    assert GATE_MESSAGE not in result.stderr
 
 
 def test_release_board_build_can_say_it_is_not_a_release():
@@ -72,10 +96,8 @@ def test_release_board_build_can_say_it_is_not_a_release():
     assert GATE_MESSAGE not in result.stderr
 
 
-def test_debug_board_build_and_host_build_are_not_gated():
-    # Neither is release-shaped: no key, no opt-out, no gate message.
-    result, _ = configure("-DCMAKE_BUILD_TYPE=Debug", "-DEBLDR_BOARD=stm32f4")
-    assert GATE_MESSAGE not in result.stderr
+def test_host_build_is_not_gated():
+    # No board, so nothing reaches a device: no key, no opt-out, no gate message.
     result, generated = configure("-DCMAKE_BUILD_TYPE=Release")
     assert result.returncode == 0, result.stderr
     assert GATE_MESSAGE not in result.stderr
@@ -97,6 +119,29 @@ def test_malformed_key_is_refused(bad):
     assert result.returncode != 0
     assert "exactly 64" in result.stderr, result.stderr
     assert generated is None
+
+
+# The bytes core/keystore.c shipped before eBoot#116: 64 hex characters, not
+# the development key, and no point on edwards25519. The length and dev-key
+# checks accept them; only the curve check refuses them.
+OFF_CURVE_KEY = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa3f4a18c42c47684377725"
+# The order-2 point. On the curve, refused by the verifier's subgroup check.
+LOW_ORDER_KEY = "ec" + "ff" * 30 + "7f"
+
+
+@pytest.mark.parametrize("key,reason", [
+    (OFF_CURVE_KEY, "no point on edwards25519"),
+    (LOW_ORDER_KEY, "low order"),
+    ("01" + "00" * 31, "identity"),
+])
+def test_key_the_verifier_would_refuse_is_refused_at_configure(key, reason):
+    result, generated = configure("-DCMAKE_BUILD_TYPE=Release",
+                                  "-DEBLDR_BOARD=stm32f4",
+                                  "-DEBLDR_PRODUCTION_KEY=" + key)
+    assert result.returncode != 0
+    assert "not a usable Ed25519 public key" in result.stderr, result.stderr
+    assert reason in result.stderr, result.stderr
+    assert generated is None, "an unusable key must not be compiled in"
 
 
 def test_real_key_generates_the_anchor_source():

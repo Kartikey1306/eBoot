@@ -18,8 +18,23 @@
 set(EBLDR_DEV_KEY_HEX
     "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
 
+# Where this module lives, captured at include time: inside a function,
+# CMAKE_CURRENT_LIST_DIR is the caller's directory, not this file's.
+set(_EBLDR_PRODUCTION_KEY_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+
 # Fail the configure unless `hex` is a raw Ed25519 public key that is not the
-# development key.
+# development key -- and, when python3 is available, one the verifier would
+# accept: a point on edwards25519, in the prime-order subgroup.
+#
+# The length and hex checks say nothing about whether the bytes are a key at
+# all. The development key shipped for months decoding to no point on the
+# curve, and one mistyped hex digit in a release secret reproduces that: the
+# build is green, the artifact scan is green, the status line says
+# "production key", and the device refuses every image it is ever offered.
+# tools/check_production_key.py applies core/ed25519_verify.c's own rule,
+# [L]P == identity and P != identity, in pure Python. CMake cannot do the
+# field arithmetic itself, so the check needs python3; without it the
+# configure warns, in so many words, about what was not checked.
 function(ebldr_check_production_key_hex hex)
     string(LENGTH "${hex}" _len)
     if(NOT _len EQUAL 64 OR NOT hex MATCHES "^[0-9a-fA-F]+$")
@@ -33,6 +48,27 @@ function(ebldr_check_production_key_hex hex)
             "EBLDR_PRODUCTION_KEY is the RFC 8032 section 7.1 TEST 1 public key -- "
             "the development key, whose secret is published. It cannot be a "
             "production trust anchor.")
+    endif()
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${_EBLDR_PRODUCTION_KEY_MODULE_DIR}/../tools/check_production_key.py"
+                    "${hex}"
+            RESULT_VARIABLE _rc
+            OUTPUT_VARIABLE _out
+            ERROR_VARIABLE _err)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR
+                "EBLDR_PRODUCTION_KEY is not a usable Ed25519 public key: ${_err}"
+                "A device built with it would refuse every firmware image.")
+        endif()
+    else()
+        message(WARNING
+            "python3 was not found, so EBLDR_PRODUCTION_KEY was NOT checked for "
+            "being a point in the prime-order subgroup of edwards25519. A key that "
+            "is not one ships a device that refuses every image. Run "
+            "tools/check_production_key.py <key> by hand before trusting this build.")
     endif()
 endfunction()
 

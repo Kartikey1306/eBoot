@@ -340,7 +340,7 @@ configured with a staging public key.
 | Rule | Rationale |
 |---|---|
 | Development private key is **committed** to the repository | Enables any developer to build and test signed images locally |
-| Development key is **never** used in production | A Release build of a real board refuses to configure without `EBLDR_PRODUCTION_KEY`, and the release workflow scans every artifact for the development key's bytes (§3.1, §7.2) |
+| Development key does not reach a production artifact **built through the gate** | Any build of a real board that is not `CMAKE_BUILD_TYPE=Debug` -- `Release`, `MinSizeRel`, `RelWithDebInfo`, any spelling, or no build type at all -- refuses to configure without `EBLDR_PRODUCTION_KEY` unless `EBLDR_ALLOW_DEV_KEY=ON` is passed explicitly; the key it accepts is checked to be a point in the prime-order subgroup (`tools/check_production_key.py`); and the release workflow validates the secret before any board is configured and scans every artifact for the development key's bytes (§3.1, §7.2). What the gate cannot see: a Debug build flashed to a device, a build that passes `EBLDR_ALLOW_DEV_KEY=ON`, or a fork that removes the gate. Those are policy, not mechanism. |
 | Production key **never** appears in source control | Only the public key is embedded; private key stays in HSM |
 | CI pipeline uses **staging** key for integration tests | Tests signature verification without exposing production key |
 
