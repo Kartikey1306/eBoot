@@ -43,10 +43,16 @@ jobs:
 
       - name: Configure
         run: |
+          # EBLDR_ALLOW_DEV_KEY: this job sets no CMAKE_BUILD_TYPE, which the
+          # trust-anchor gate treats as release-shaped (the cross branch adds
+          # -Os regardless), so it refuses to configure a real board on the
+          # RFC 8032 test key. This is a compile check whose output reaches no
+          # device. Never use this flag in a workflow that publishes an artifact.
           cmake -B build-arm \
             -DCMAKE_SYSTEM_NAME=Generic \
             -DCMAKE_C_COMPILER=arm-none-eabi-gcc \
             -DEBLDR_BOARD=stm32f4 \
+            -DEBLDR_ALLOW_DEV_KEY=ON \
             -DCMAKE_C_FLAGS="-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -specs=nosys.specs"
 
       - name: Build
