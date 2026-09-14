@@ -10,6 +10,7 @@
 #include "eos_keystore.h"
 #include "eos_crypto_boot.h"
 #include "eos_hal.h"
+#include "../vectors/fw_update_test_sigs.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -288,10 +289,6 @@ TEST(test_compiled_in_anchor_verifies_its_own_rfc_vector)
         0x5f,0xb8,0x82,0x15,0x90,0xa3,0x3b,0xac,0xc6,0x1e,0x39,0x70,0x1c,0xf9,0xb4,0x6b,
         0xd2,0x5b,0xf5,0xf0,0x59,0x5b,0xbe,0x24,0x65,0x51,0x41,0x43,0x8e,0x7a,0x10,0x0b,
     };
-    static const uint8_t rfc8032_test1_pub[32] = {
-        0xd7,0x5a,0x98,0x01,0x82,0xb1,0x0a,0xb7,0xd5,0x4b,0xfe,0xd3,0xc9,0x64,0x07,0x3a,
-        0x0e,0xe1,0x72,0xf3,0xda,0xa6,0x23,0x25,0xaf,0x02,0x1a,0x68,0xf7,0x07,0x51,0x1a,
-    };
     const uint8_t *key = NULL;
     size_t key_len = 0;
     eos_keystore_t ks;
@@ -301,8 +298,15 @@ TEST(test_compiled_in_anchor_verifies_its_own_rfc_vector)
     ASSERT(eos_keystore_get_active_key(&ks, &key, &key_len) == EOS_OK);
     ASSERT(key_len == 32);
 
-    /* The bytes are the RFC's bytes, and they verify the RFC's signature. */
-    ASSERT(memcmp(key, rfc8032_test1_pub, 32) == 0);
+    /* The bytes are the RFC's bytes, and they verify the RFC's signature.
+     *
+     * The expected key is eos_test_sig_pubkey from the generated fixture
+     * header, not a third hand-typed copy. That public key is derived from
+     * the RFC 8032 secret by tools/gen_fw_update_test_sigs.py and pinned to
+     * that script by tests/unit/test_fw_update_test_sigs.py, so this compares
+     * the compiled-in anchor against a second, independently derived copy of
+     * the same key. */
+    ASSERT(memcmp(key, eos_test_sig_pubkey, 32) == 0);
     ASSERT(eos_ed25519_verify(rfc8032_test1_sig, key, NULL, 0) == EOS_OK);
 
     /* Discrimination: the same signature must not verify a different message,
