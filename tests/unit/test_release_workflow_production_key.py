@@ -126,23 +126,72 @@ def test_the_scan_looks_for_the_key_keystore_actually_compiles_in():
             "the scan step does not name the development key core/keystore.c compiles in")
 
 
+def unguarded_release_board_configures(doc):
+    """Every `cmake -B` configure in `doc` that is a Release build of a real
+    board and passes neither a production key nor the explicit opt-out.
+    Such a configure fails under CMakeLists.txt's gate, and a CI job that
+    hits the gate is a job that has stopped testing the tree."""
+    found = []
+    if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
+        return found
+    for job_id, job in doc["jobs"].items():
+        if not isinstance(job, dict):
+            continue
+        for step in run_steps(job):
+            for block in configure_lines(step["run"]):
+                if board_of(block) in (None, "none") or not is_release_shaped(block):
+                    continue
+                if ("-DEBLDR_PRODUCTION_KEY=" in block
+                        or "-DEBLDR_ALLOW_DEV_KEY=ON" in block):
+                    continue
+                found.append((job_id, board_of(block), block))
+    return found
+
+
 def test_no_ci_workflow_cross_compiles_a_release_board_without_saying_so():
-    """A Release build of a real board must either carry a key or opt into
-    the development key explicitly; otherwise its configure fails, and a CI
-    job that hits the gate is a job that stops testing the tree."""
     for path in sorted(WORKFLOWS.glob("*.yml")):
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if not isinstance(doc, dict) or "jobs" not in doc:
-            continue
-        for job_id, job in doc["jobs"].items():
-            if not isinstance(job, dict):
-                continue
-            for step in run_steps(job):
-                for block in configure_lines(step["run"]):
-                    if board_of(block) in (None, "none") or not is_release_shaped(block):
-                        continue
-                    assert ("-DEBLDR_PRODUCTION_KEY=" in block
-                            or "-DEBLDR_ALLOW_DEV_KEY=ON" in block), (
-                        f"{path.name} job {job_id!r}: a Release build of "
-                        f"{board_of(block)} with no key and no opt-out cannot "
-                        f"configure:\n{block}")
+        for job_id, board, block in unguarded_release_board_configures(doc):
+            raise AssertionError(
+                f"{path.name} job {job_id!r}: a Release build of {board} with "
+                f"no key and no opt-out cannot configure:\n{block}")
+
+
+def test_the_guard_flags_exactly_the_unguarded_release_board_configure():
+    """The check above, driven with a synthetic workflow so its every branch
+    runs on a green tree: the one job that is Release + real board with
+    neither flag is reported, and nothing else is."""
+    doc = yaml.safe_load("""
+jobs:
+  bad:
+    steps:
+      - run: |
+          cmake -B build -DEBLDR_BOARD=stm32f4 -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+  keyed:
+    steps:
+      - run: cmake -B build -DEBLDR_BOARD=stm32f4 -DEBLDR_PRODUCTION_KEY="x" -DCMAKE_BUILD_TYPE=Release
+  opted-out:
+    steps:
+      - run: |
+          cmake -B build -DEBLDR_BOARD=stm32f4 \\
+            -DCMAKE_BUILD_TYPE=$BUILD_TYPE \\
+            -DEBLDR_ALLOW_DEV_KEY=ON
+  debug:
+    steps:
+      - run: cmake -B build -DEBLDR_BOARD=stm32f4 -DCMAKE_BUILD_TYPE=Debug
+  host:
+    steps:
+      - run: cmake -B build -DEBLDR_BOARD=none -DCMAKE_BUILD_TYPE=Release
+  no-board:
+    steps:
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+  not-a-job: 42
+""")
+    flagged = unguarded_release_board_configures(doc)
+    assert [(job, board) for job, board, _ in flagged] == [("bad", "stm32f4")]
+
+    # Documents without a jobs mapping are not workflows and are ignored.
+    assert unguarded_release_board_configures(None) == []
+    assert unguarded_release_board_configures({"name": "x"}) == []
+    assert unguarded_release_board_configures({"jobs": "not a mapping"}) == []
