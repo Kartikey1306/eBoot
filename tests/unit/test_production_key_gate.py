@@ -144,6 +144,25 @@ def test_key_the_verifier_would_refuse_is_refused_at_configure(key, reason):
     assert generated is None, "an unusable key must not be compiled in"
 
 
+def test_production_key_without_python_refuses_rather_than_skipping_the_check():
+    """The point check runs in Python. A production-key configure on a machine
+    with no python3 must stop, not warn and compile an unchecked key in: this
+    gate is the only control for a build made outside release.yml, and a
+    warning scrolls past. CMAKE_DISABLE_FIND_PACKAGE_Python3 is how CMake
+    itself simulates the interpreter being absent."""
+    result, generated = configure("-DCMAKE_BUILD_TYPE=Release", "-DEBLDR_BOARD=stm32f4",
+                                  "-DEBLDR_PRODUCTION_KEY=" + GOOD_KEY,
+                                  "-DCMAKE_DISABLE_FIND_PACKAGE_Python3=TRUE")
+    assert result.returncode != 0, "a production key was compiled in unchecked"
+    assert "python3 was not found" in result.stderr, result.stderr
+    assert "CMake Warning" not in result.stderr, "it must refuse, not warn"
+    assert generated is None
+    # A development build never runs the check, so it is unaffected.
+    result, _ = configure("-DCMAKE_BUILD_TYPE=Debug", "-DEBLDR_BOARD=stm32f4",
+                          "-DCMAKE_DISABLE_FIND_PACKAGE_Python3=TRUE")
+    assert result.returncode == 0, result.stderr
+
+
 def test_real_key_generates_the_anchor_source():
     result, generated = configure("-DCMAKE_BUILD_TYPE=Release",
                                   "-DEBLDR_BOARD=stm32f4",

@@ -64,11 +64,17 @@ function(ebldr_check_production_key_hex hex)
                 "A device built with it would refuse every firmware image.")
         endif()
     else()
-        message(WARNING
-            "python3 was not found, so EBLDR_PRODUCTION_KEY was NOT checked for "
-            "being a point in the prime-order subgroup of edwards25519. A key that "
-            "is not one ships a device that refuses every image. Run "
-            "tools/check_production_key.py <key> by hand before trusting this build.")
+        # Not a warning. This gate is the only control for anyone building a
+        # device image outside release.yml, and a warning scrolls past. A
+        # production-key configure that cannot validate its key does not
+        # compile an unchecked key in; it stops, and says what to install.
+        # Development builds (no EBLDR_PRODUCTION_KEY) never reach this.
+        message(FATAL_ERROR
+            "EBLDR_PRODUCTION_KEY was given but python3 was not found, so it cannot "
+            "be checked for being a point in the prime-order subgroup of "
+            "edwards25519. A key that is not one ships a device that refuses every "
+            "image, so the key is not compiled in unchecked. Install python3, or "
+            "configure on a machine that has it.")
     endif()
 endfunction()
 
