@@ -67,7 +67,10 @@ jobs:
       - name: The production-key branch was compiled, not the dev key
         run: |
           test -f build-arm/generated/production_key.c
-          obj=$(find build-arm -name 'production_key.c.o' | head -1)
+          # CMake names objects .obj, not .o, when CMAKE_SYSTEM_NAME=Generic;
+          # the first run of this step looked for .o and reported the TU
+          # uncompiled when the build log showed it compiling. Match both.
+          obj=$(find build-arm \( -name 'production_key.c.o' -o -name 'production_key.c.obj' \) | head -1)
           test -n "$obj" || { echo '::error::generated/production_key.c was not compiled'; exit 1; }
           # the object must carry the fixture key and must not carry the dev key
           python3 - "$obj" <<'PY'
