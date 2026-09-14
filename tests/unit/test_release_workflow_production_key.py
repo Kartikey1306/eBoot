@@ -212,6 +212,33 @@ def test_the_scanner_decodes_hex_and_uf2_rather_than_grepping_them(tmp_path):
     assert sorted(Path(h).name for h in hits) == ["fw.hex", "fw.uf2"], hits
 
 
+def test_a_truncated_hex_record_is_reported_not_raised(tmp_path):
+    """`:00` is a record with a byte count and nothing else. Indexing it before
+    checking its length escaped as an IndexError traceback -- still exit 1, so
+    it failed closed, but by accident: the operator lost the file-annotated
+    "could not be decoded" line the tool promises. Now a ValueError, caught,
+    reported against the file."""
+    tool = scan_tool()
+    build = tmp_path / "build"; build.mkdir()
+    (build / "short.hex").write_text(":00\n")
+    hits, undecodable = tool.scan([build])          # must not raise
+    assert hits == []
+    assert len(undecodable) == 1 and undecodable[0][0].endswith("short.hex")
+    assert "truncated" in undecodable[0][1]
+
+
+def test_suffix_match_is_case_insensitive(tmp_path):
+    """A .BIN is the same artifact as a .bin. Skipping it on case would report
+    it clean without reading it, which is the one thing this scan must not do."""
+    tool = scan_tool()
+    build = tmp_path / "build"; build.mkdir()
+    (build / "FW.BIN").write_bytes(bytes(64) + tool.DEV_KEY)
+    (build / "FW.HEX").write_text(_intel_hex(bytes(64) + tool.DEV_KEY))
+    hits, undecodable = tool.scan([build])
+    assert undecodable == []
+    assert sorted(Path(h).name for h in hits) == ["FW.BIN", "FW.HEX"], hits
+
+
 def test_the_scanner_passes_a_clean_tree_and_fails_an_unreadable_file(tmp_path):
     tool = scan_tool()
     build = tmp_path / "build"; build.mkdir()

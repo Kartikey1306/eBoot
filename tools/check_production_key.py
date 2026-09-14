@@ -10,7 +10,8 @@ are a public key at all. They can fail to be one in two ways that matter:
   * they decode to no point on edwards25519 -- the exact defect the shipped
     development key had until it was fixed, and one mistyped hex digit in a
     release secret reproduces it;
-  * they decode to a point of low order, which the verifier refuses
+  * they decode to a point of low order (every signature verifies) or one
+    outside the prime-order subgroup (the verifier refuses every image)
     (core/ed25519_verify.c, public_key_is_valid_subgroup).
 
 A device built with such an anchor refuses every firmware image it is ever
@@ -113,8 +114,19 @@ def check_production_key_hex(hex_key: str) -> None:
         raise ValueError("the key is the identity point; any signature verifies "
                          "against it")
     if not _is_identity(_mul(point, L)):
-        raise ValueError("the key is a point of low order; the verifier refuses "
-                         "it and every image would be rejected")
+        # Outside the prime-order subgroup. Two very different things land
+        # here and an operator needs to be told which:
+        #   [8]P == identity: P has order 2, 4 or 8. Every signature verifies
+        #   against it -- fails open. Somebody handed over an attack vector.
+        #   otherwise: P has order 2L, 4L or 8L. That is where a mistyped hex
+        #   digit lands about half the time. The verifier refuses it and every
+        #   image is rejected -- fails closed. Somebody typed the secret wrong.
+        if _is_identity(_mul(point, 8)):
+            raise ValueError("the key is a point of low order (order 2, 4 or 8); "
+                             "every signature would verify against it")
+        raise ValueError("the key is on the curve but not in the prime-order "
+                         "subgroup -- a mistyped hex digit usually lands here; "
+                         "the verifier refuses it and every image would be rejected")
 
 
 def main(argv) -> int:

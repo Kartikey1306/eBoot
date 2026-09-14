@@ -29,6 +29,22 @@ def test_a_real_key_is_accepted(key):
     check_production_key_hex(key)
 
 
+def test_mixed_order_is_not_reported_as_low_order():
+    """Both classes are outside the prime-order subgroup and both are refused,
+    but they fail in opposite directions: a genuine low-order point makes every
+    signature verify, a mixed-order one makes the verifier refuse every image.
+    The message must say which, because the operator's next action differs."""
+    with pytest.raises(ValueError) as low:
+        check_production_key_hex("ec" + "ff" * 30 + "7f")           # order 2
+    with pytest.raises(ValueError) as mixed:
+        check_production_key_hex(DEV[:-1] + "b")                     # order 8L
+    assert "low order" in str(low.value)
+    assert "every signature would verify" in str(low.value)
+    assert "low order" not in str(mixed.value)
+    assert "prime-order subgroup" in str(mixed.value)
+    assert "mistyped" in str(mixed.value)
+
+
 @pytest.mark.parametrize("key,reason", [
     (DEV, "development key"),
     (DEV.upper(), "development key"),
@@ -38,6 +54,12 @@ def test_a_real_key_is_accepted(key):
     ("00" * 31 + "80", "low order"),                 # order 4
     ("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
      "low order"),                                   # order 8
+    # On the curve, outside the prime-order subgroup, NOT low order: order 8L.
+    # This is where a mistyped hex digit lands about half the time, and it is
+    # the case an operator will actually hit, so it must not be reported as
+    # "low order" -- that names an attack vector when the cause is a typo.
+    ("03" + "00" * 31, "prime-order subgroup"),
+    (DEV[:-1] + "b", "prime-order subgroup"),        # dev key, last digit mistyped
     ("ff" * 31 + "7f", "not below p"),               # y = 2^255 - 1
     ("ed" + "ff" * 30 + "7f", "not below p"),        # y = p exactly
     (TEST2[:-2], "exactly 64"),

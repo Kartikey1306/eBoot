@@ -64,7 +64,14 @@ def decode_intel_hex(text):
         if not line.startswith(":"):
             raise ValueError(f"not an Intel HEX record: {line[:20]!r}")
         rec = bytes.fromhex(line[1:])
+        # Byte count, two address bytes, type, checksum: five bytes minimum.
+        # Indexing before checking turned a truncated record into an
+        # IndexError traceback instead of the ::error line this tool promises.
+        if len(rec) < 5:
+            raise ValueError(f"Intel HEX record is truncated: {line[:20]!r}")
         length, addr, rtype = rec[0], (rec[1] << 8) | rec[2], rec[3]
+        if len(rec) != 5 + length:
+            raise ValueError(f"Intel HEX record length field disagrees with the record: {line[:20]!r}")
         data = rec[4:4 + length]
         if (sum(rec) & 0xFF) != 0:
             raise ValueError("Intel HEX checksum mismatch")
@@ -115,9 +122,10 @@ def _runs(chunks):
 
 def images_of(path):
     """The byte images to search for a given artifact."""
-    if path.suffix == ".hex":
+    suffix = path.suffix.lower()
+    if suffix == ".hex":
         return decode_intel_hex(path.read_text(encoding="ascii", errors="strict"))
-    if path.suffix == ".uf2":
+    if suffix == ".uf2":
         return decode_uf2(path.read_bytes())
     return [path.read_bytes()]
 
@@ -126,13 +134,15 @@ def scan(roots):
     hits, undecodable = [], []
     for root in roots:
         for p in sorted(pathlib.Path(root).rglob("*")):
-            if not p.is_file() or p.suffix not in SUFFIXES:
+            # Case-folded: a .BIN or .HEX artifact is the same artifact, and
+            # skipping it would report it clean without having read it.
+            if not p.is_file() or p.suffix.lower() not in SUFFIXES:
                 continue
             try:
                 if any(DEV_KEY in img for img in images_of(p)):
                     hits.append(str(p))
-            except (ValueError, UnicodeDecodeError) as e:
-                undecodable.append((str(p), str(e)))
+            except (ValueError, UnicodeDecodeError, IndexError, struct.error) as e:
+                undecodable.append((str(p), f"{type(e).__name__}: {e}"))
     return hits, undecodable
 
 
