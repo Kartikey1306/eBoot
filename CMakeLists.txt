@@ -27,8 +27,41 @@ option(EBLDR_VERIFY_STAGE1 "Verify Stage-1 hash before jump" ON)
 option(EBLDR_HARDENING "Enable compiler hardening flags" ON)
 option(EBLDR_SANITIZE "Enable ASAN/UBSAN for host builds" OFF)
 option(EBLDR_BUILD_FUZZ "Build libFuzzer fuzz targets" OFF)
+set(EBLDR_PRODUCTION_KEY "" CACHE STRING
+    "Ed25519 public key, 64 hex characters, compiled in as the trust anchor for \
+a board without OTP. A Release build of a real board refuses to configure without it.")
+option(EBLDR_ALLOW_DEV_KEY
+    "Let a Release build of a real board fall back to the RFC 8032 test key \
+(bring-up and CI cross-compiles only; never a device)" OFF)
 
 set(EBLDR_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# ====================================================================
+# Trust anchor for boards without OTP
+# ====================================================================
+# core/keystore.c falls back to a compiled-in public key when the board has
+# no OTP -- which today is every board under boards/, none of which
+# implements otp_read. Without a production key that fallback is the RFC 8032
+# test key, whose secret is published, and an artifact built that way accepts
+# anyone's firmware. So a Release build of a real board refuses to configure
+# until it is given a key, or told in so many words that it is not a release.
+include(cmake/ProductionKey.cmake)
+if(NOT EBLDR_PRODUCTION_KEY STREQUAL "")
+    ebldr_write_production_key_source("${EBLDR_PRODUCTION_KEY}"
+        "${CMAKE_BINARY_DIR}/generated/production_key.c")
+    set(EBLDR_PRODUCTION_KEY_SOURCE "${CMAKE_BINARY_DIR}/generated/production_key.c")
+    message(STATUS "  Trust anchor: production key from EBLDR_PRODUCTION_KEY")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT EBLDR_BOARD STREQUAL "none"
+       AND NOT EBLDR_ALLOW_DEV_KEY)
+    message(FATAL_ERROR
+        "EBLDR_PRODUCTION_KEY is not set: a Release build of board '${EBLDR_BOARD}' "
+        "would compile in the RFC 8032 test key as its trust anchor, and anyone can "
+        "sign for that key. Pass -DEBLDR_PRODUCTION_KEY=<64 hex characters> (the raw "
+        "Ed25519 public key), or, for a bring-up or CI build that will never reach a "
+        "device, -DEBLDR_ALLOW_DEV_KEY=ON.")
+else()
+    message(STATUS "  Trust anchor: RFC 8032 test key (development only; see core/keystore.c)")
+endif()
 
 # ====================================================================
 # Compiler flags
@@ -117,6 +150,12 @@ add_library(eboot_core STATIC
 )
 target_include_directories(eboot_core PUBLIC ${EBLDR_INCLUDE_DIR})
 target_link_libraries(eboot_core PUBLIC eboot_hal)
+if(EBLDR_PRODUCTION_KEY_SOURCE)
+    # The generated ebldr_production_key[] and the switch that makes
+    # core/keystore.c use it instead of the development key.
+    target_sources(eboot_core PRIVATE ${EBLDR_PRODUCTION_KEY_SOURCE})
+    target_compile_definitions(eboot_core PRIVATE EBLDR_PRODUCTION_KEY=1)
+endif()
 
 # ---- Stage-1 boot manager ----
 add_library(eboot_stage1 STATIC
