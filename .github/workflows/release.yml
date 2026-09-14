@@ -68,22 +68,7 @@ jobs:
           cmake -B build -DEBLDR_BOARD=${{ matrix.board }} -DEBLDR_PRODUCTION_KEY="${{ secrets.EBLDR_PRODUCTION_KEY_HEX }}" -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
       - name: Refuse an artifact that embeds the development anchor
-        run: |
-          python3 - <<'PY'
-          import pathlib, sys
-          # RFC 8032 section 7.1 TEST 1 public key: what core/keystore.c falls
-          # back to when EBLDR_PRODUCTION_KEY is unset. Its secret is published.
-          dev = bytes.fromhex(
-              "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-          hits = sorted(str(p) for p in pathlib.Path("build").rglob("*")
-                        if p.is_file() and p.suffix in (".elf", ".bin", ".a", ".o")
-                        and dev in p.read_bytes())
-          for h in hits:
-              print(f"::error file={h}::embeds the development trust anchor")
-          if hits:
-              sys.exit(1)
-          print("no artifact under build/ contains the development key")
-          PY
+        run: python3 tools/check_no_dev_anchor.py build
       - name: Collect artifacts
         run: |
           mkdir -p fw
@@ -116,22 +101,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
       - name: Refuse an artifact that embeds the development anchor
-        run: |
-          python3 - <<'PY'
-          import pathlib, sys
-          # RFC 8032 section 7.1 TEST 1 public key: what core/keystore.c falls
-          # back to when EBLDR_PRODUCTION_KEY is unset. Its secret is published.
-          dev = bytes.fromhex(
-              "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-          hits = sorted(str(p) for p in pathlib.Path("build").rglob("*")
-                        if p.is_file() and p.suffix in (".elf", ".bin", ".a", ".o")
-                        and dev in p.read_bytes())
-          for h in hits:
-              print(f"::error file={h}::embeds the development trust anchor")
-          if hits:
-              sys.exit(1)
-          print("no artifact under build/ contains the development key")
-          PY
+        run: python3 tools/check_no_dev_anchor.py build
       - name: Collect artifacts
         run: |
           mkdir -p fw
@@ -163,22 +133,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
       - name: Refuse an artifact that embeds the development anchor
-        run: |
-          python3 - <<'PY'
-          import pathlib, sys
-          # RFC 8032 section 7.1 TEST 1 public key: what core/keystore.c falls
-          # back to when EBLDR_PRODUCTION_KEY is unset. Its secret is published.
-          dev = bytes.fromhex(
-              "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-          hits = sorted(str(p) for p in pathlib.Path("build").rglob("*")
-                        if p.is_file() and p.suffix in (".elf", ".bin", ".a", ".o")
-                        and dev in p.read_bytes())
-          for h in hits:
-              print(f"::error file={h}::embeds the development trust anchor")
-          if hits:
-              sys.exit(1)
-          print("no artifact under build/ contains the development key")
-          PY
+        run: python3 tools/check_no_dev_anchor.py build
       - name: Collect artifacts
         run: |
           mkdir -p fw
@@ -225,22 +180,7 @@ jobs:
           cmake -B build -DEBLDR_BOARD=esp32 -DEBLDR_PRODUCTION_KEY="${{ secrets.EBLDR_PRODUCTION_KEY_HEX }}" -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
       - name: Refuse an artifact that embeds the development anchor
-        run: |
-          python3 - <<'PY'
-          import pathlib, sys
-          # RFC 8032 section 7.1 TEST 1 public key: what core/keystore.c falls
-          # back to when EBLDR_PRODUCTION_KEY is unset. Its secret is published.
-          dev = bytes.fromhex(
-              "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-          hits = sorted(str(p) for p in pathlib.Path("build").rglob("*")
-                        if p.is_file() and p.suffix in (".elf", ".bin", ".a", ".o")
-                        and dev in p.read_bytes())
-          for h in hits:
-              print(f"::error file={h}::embeds the development trust anchor")
-          if hits:
-              sys.exit(1)
-          print("no artifact under build/ contains the development key")
-          PY
+        run: python3 tools/check_no_dev_anchor.py build
       - name: Collect artifacts
         run: |
           mkdir -p fw
@@ -285,22 +225,7 @@ jobs:
           cmake -B build -DEBLDR_BOARD=esp32c3 -DEBLDR_PRODUCTION_KEY="${{ secrets.EBLDR_PRODUCTION_KEY_HEX }}" -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
       - name: Refuse an artifact that embeds the development anchor
-        run: |
-          python3 - <<'PY'
-          import pathlib, sys
-          # RFC 8032 section 7.1 TEST 1 public key: what core/keystore.c falls
-          # back to when EBLDR_PRODUCTION_KEY is unset. Its secret is published.
-          dev = bytes.fromhex(
-              "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-          hits = sorted(str(p) for p in pathlib.Path("build").rglob("*")
-                        if p.is_file() and p.suffix in (".elf", ".bin", ".a", ".o")
-                        and dev in p.read_bytes())
-          for h in hits:
-              print(f"::error file={h}::embeds the development trust anchor")
-          if hits:
-              sys.exit(1)
-          print("no artifact under build/ contains the development key")
-          PY
+        run: python3 tools/check_no_dev_anchor.py build
       - name: Collect artifacts
         run: |
           mkdir -p fw
@@ -329,22 +254,7 @@ jobs:
           cmake -B build -DEBLDR_BOARD=x86_64_efi -DEBLDR_PRODUCTION_KEY="${{ secrets.EBLDR_PRODUCTION_KEY_HEX }}" -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
       - name: Refuse an artifact that embeds the development anchor
-        run: |
-          python3 - <<'PY'
-          import pathlib, sys
-          # RFC 8032 section 7.1 TEST 1 public key: what core/keystore.c falls
-          # back to when EBLDR_PRODUCTION_KEY is unset. Its secret is published.
-          dev = bytes.fromhex(
-              "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-          hits = sorted(str(p) for p in pathlib.Path("build").rglob("*")
-                        if p.is_file() and p.suffix in (".elf", ".bin", ".a", ".o")
-                        and dev in p.read_bytes())
-          for h in hits:
-              print(f"::error file={h}::embeds the development trust anchor")
-          if hits:
-              sys.exit(1)
-          print("no artifact under build/ contains the development key")
-          PY
+        run: python3 tools/check_no_dev_anchor.py build
       - name: Collect artifacts
         run: |
           mkdir -p fw

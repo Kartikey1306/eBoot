@@ -56,8 +56,16 @@ def board_of(block):
     return m.group(1) if m else None
 
 
+# Mirrors the gate in CMakeLists.txt: any optimised build type, case-insensitive,
+# or none named at all. The gate test parametrises the same spellings, so if
+# the two drift it fails there rather than going quiet here.
+RELEASE_SHAPED = re.compile(
+    r"-DCMAKE_BUILD_TYPE=(Release|RelWithDebInfo|MinSizeRel)\b", re.IGNORECASE)
+
 def is_release_shaped(block):
-    return "-DCMAKE_BUILD_TYPE=Release" in block or "$BUILD_TYPE" in block
+    if "$BUILD_TYPE" in block or RELEASE_SHAPED.search(block):
+        return True
+    return "-DCMAKE_BUILD_TYPE=" not in block
 
 
 def dev_key_from_keystore():
@@ -113,17 +121,109 @@ def test_every_release_firmware_job_scans_for_the_development_key():
             f"before artifacts are collected")
 
 
-def test_the_scan_looks_for_the_key_keystore_actually_compiles_in():
+SCAN_TOOL = "tools/check_no_dev_anchor.py"
+
+
+def scan_tool():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("check_no_dev_anchor", REPO_ROOT / SCAN_TOOL)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_every_scan_step_calls_the_one_scanner():
+    """Six jobs used to carry the scan inline, each a copy, and the copies
+    drifted from the artifact list. One tool, called six times, cannot."""
     doc = load("release.yml")
-    scans = [s["run"] for job in doc["jobs"].values() for s in run_steps(job)
+    scans = [s["run"].strip() for job in doc["jobs"].values() for s in run_steps(job)
              if s.get("name") == SCAN_STEP]
-    assert scans
+    assert len(scans) == 6, scans
+    for run in scans:
+        assert run == f"python3 {SCAN_TOOL} build", run
+
+
+def test_the_scanner_looks_for_the_key_keystore_actually_compiles_in():
     keystore = dev_key_from_keystore()
     cmake = dev_key_from_cmake()
     assert keystore == cmake, "core/keystore.c and cmake/ProductionKey.cmake disagree on the development key"
-    for run in scans:
-        assert keystore in run.replace("\n", "").replace(" ", "").replace('"', ""), (
-            "the scan step does not name the development key core/keystore.c compiles in")
+    assert scan_tool().DEV_KEY.hex() == keystore, (
+        "the scanner does not name the development key core/keystore.c compiles in")
+
+
+def collected_suffixes(doc):
+    """Every `-name \"*.ext\"` glob in every Collect artifacts step."""
+    found = set()
+    for job in doc["jobs"].values():
+        for s in run_steps(job):
+            if s.get("name") == "Collect artifacts":
+                found |= set(re.findall(r'-name "\*(\.[a-z0-9]+)"', s["run"]))
+    return found
+
+
+def test_the_scanner_covers_every_suffix_the_workflow_ships():
+    """The scan list and the artifact list were maintained by hand beside each
+    other and disagreed: the scan read .elf .bin .a .o while Collect shipped
+    .hex .uf2 .efi too. This pins the one against the other."""
+    shipped = collected_suffixes(load("release.yml"))
+    assert shipped >= {".elf", ".bin", ".a", ".hex", ".uf2", ".efi"}, shipped
+    missing = shipped - scan_tool().SUFFIXES
+    assert not missing, f"release.yml ships {sorted(missing)} but the scanner never opens them"
+
+
+def _intel_hex(data, base=0x08000000):
+    def rec(t, addr, payload):
+        body = bytes([len(payload), (addr >> 8) & 0xFF, addr & 0xFF, t]) + payload
+        return ":" + (body + bytes([(-sum(body)) & 0xFF])).hex().upper()
+    lines = [rec(0x04, 0, (base >> 16).to_bytes(2, "big"))]
+    lines += [rec(0x00, (base & 0xFFFF) + off, data[off:off + 16]) for off in range(0, len(data), 16)]
+    return "\n".join(lines + [rec(0x01, 0, b"")]) + "\n"
+
+
+def _uf2(data, base=0x2000):
+    import struct
+    blocks = [data[i:i + 256] for i in range(0, len(data), 256)]
+    return b"".join(
+        struct.pack("<IIIIIIII", 0x0A324655, 0x9E5D5157, 0, base + n * 256, len(blk), n, len(blocks), 0)
+        + blk.ljust(476, b"\0") + struct.pack("<I", 0x0AB16F30)
+        for n, blk in enumerate(blocks))
+
+
+def test_the_scanner_decodes_hex_and_uf2_rather_than_grepping_them(tmp_path):
+    """Intel HEX is ASCII and UF2 is blocked with headers, so the key's raw
+    bytes never appear in either file even when the key is in the image. A
+    scan that opened them and grepped would report clean; that is worse than
+    not opening them. The key is placed so it straddles both a 16-byte HEX
+    record and a 256-byte UF2 block, which is the case a per-record search
+    would also miss."""
+    tool = scan_tool()
+    image = bytes(range(245)) + tool.DEV_KEY + bytes(50)
+    off = image.index(tool.DEV_KEY)
+    assert off % 16 != 0 and off // 256 != (off + 31) // 256
+    build = tmp_path / "build"; build.mkdir()
+    (build / "fw.hex").write_text(_intel_hex(image))
+    (build / "fw.uf2").write_bytes(_uf2(image))
+    (build / "clean.elf").write_bytes(bytes(range(256)) * 4)
+    # the premise: a raw search finds nothing in either encoded file
+    assert tool.DEV_KEY not in (build / "fw.hex").read_bytes()
+    assert tool.DEV_KEY not in (build / "fw.uf2").read_bytes()
+    hits, undecodable = tool.scan([build])
+    assert undecodable == []
+    assert sorted(Path(h).name for h in hits) == ["fw.hex", "fw.uf2"], hits
+
+
+def test_the_scanner_passes_a_clean_tree_and_fails_an_unreadable_file(tmp_path):
+    tool = scan_tool()
+    build = tmp_path / "build"; build.mkdir()
+    (build / "clean.bin").write_bytes(bytes(range(256)) * 8)
+    assert tool.scan([build]) == ([], [])
+    # a .hex the scanner cannot decode is a file it did not check: that is
+    # a failure, not a quiet gap in coverage
+    (build / "odd.hex").write_text(":garbage\n")
+    hits, undecodable = tool.scan([build])
+    assert hits == [] and len(undecodable) == 1
+
+
 
 
 def unguarded_release_board_configures(doc):
