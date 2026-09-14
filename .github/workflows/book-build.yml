@@ -5,11 +5,16 @@ on:
     branches: [master, main]
     paths:
       - 'docs/book/**'
+      # The workflow runs on changes to itself, so a toolchain change here
+      # gets the run that proves it. Before this, the job only fired on
+      # docs/book/** and a workflow-only PR could not be tested at all.
+      - '.github/workflows/book-build.yml'
     tags:
       - 'v*'
   pull_request:
     paths:
       - 'docs/book/**'
+      - '.github/workflows/book-build.yml'
   release:
     types: [published, created]
   workflow_dispatch:
@@ -23,6 +28,7 @@ permissions:
 
 env:
   PANDOC_VERSION: "3.6.1"
+  EISVOGEL_VERSION: "3.5.1"
 
 jobs:
   # ═══════════════════════════════════════════════════
@@ -95,12 +101,23 @@ jobs:
           echo "pandoc $(pandoc --version | head -1)"
 
       - name: Install Eisvogel template
+        # Eisvogel 2.4.0 with pandoc 3.6.1 fails every run with
+        # "LaTeX Error: Command \chead already defined" (exit 43). The 2.4.0
+        # template predates pandoc 3.6; the 3.x line merges pandoc's default
+        # LaTeX template up to 3.6.1 and beyond (its CHANGELOG names the
+        # merges) and its README states pandoc 3 compatibility. The exact
+        # LaTeX-level cause of the clash is not established here -- the run
+        # on the change is what shows whether the pair works. The 3.x
+        # tarball extracts into a versioned directory, not flat, so the copy
+        # names it.
+        # No `|| true` on tar: a missing or reshaped tarball must fail here,
+        # at the step that broke, not at the copy after it.
         run: |
           mkdir -p ~/.local/share/pandoc/templates
-          wget -q https://github.com/Wandmalfarbe/pandoc-latex-template/releases/download/v2.4.0/Eisvogel-2.4.0.tar.gz
-          tar xzf Eisvogel-2.4.0.tar.gz 2>/dev/null || true
-          cp eisvogel.latex ~/.local/share/pandoc/templates/eisvogel.latex
-          echo "Eisvogel template installed"
+          wget -q https://github.com/Wandmalfarbe/pandoc-latex-template/releases/download/v${EISVOGEL_VERSION}/Eisvogel-${EISVOGEL_VERSION}.tar.gz
+          tar xzf Eisvogel-${EISVOGEL_VERSION}.tar.gz
+          cp Eisvogel-${EISVOGEL_VERSION}/eisvogel.latex ~/.local/share/pandoc/templates/eisvogel.latex
+          echo "Eisvogel ${EISVOGEL_VERSION} template installed"
 
       - name: Clean source
         run: |
