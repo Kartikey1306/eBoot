@@ -21,8 +21,6 @@ stm32f4 | stm32h7 | nrf52 | rpi4 | riscv64_virt | esp32 | x86_64_efi | \
 imx8m | am64x | samd51 | sifive_u | cortex_r5 | none")
 
 option(EBLDR_BUILD_TESTS "Build unit tests (native only)" OFF)
-option(EBLDR_REQUIRE_SIGNATURES "Require Ed25519 signatures for boot" ON)
-option(EBLDR_RECOVERY_AUTH "Require authentication for recovery commands" ON)
 option(EBLDR_VERIFY_STAGE1 "Verify Stage-1 hash before jump" ON)
 option(EBLDR_HARDENING "Enable compiler hardening flags" ON)
 option(EBLDR_SANITIZE "Enable ASAN/UBSAN for host builds" OFF)
@@ -54,15 +52,24 @@ if(EBLDR_SANITIZE AND NOT CMAKE_CROSSCOMPILING AND CMAKE_C_COMPILER_ID MATCHES "
 endif()
 
 # Security compile definitions
-if(EBLDR_REQUIRE_SIGNATURES)
-    add_compile_definitions(EBLDR_REQUIRE_SIGNATURES)
-endif()
-if(EBLDR_RECOVERY_AUTH)
-    add_compile_definitions(EBLDR_RECOVERY_AUTH)
-endif()
 if(EBLDR_VERIFY_STAGE1)
     add_compile_definitions(EBLDR_VERIFY_STAGE1)
 endif()
+
+# Signature verification and recovery authentication have no build-time
+# switch. EBLDR_REQUIRE_SIGNATURES and EBLDR_RECOVERY_AUTH used to be offered
+# as options, but no source file read the definitions they produced, so a
+# build with either OFF was byte-for-byte the build with it ON. A script that
+# still passes one as OFF is asking for something this bootloader does not
+# do; say so instead of configuring as if it had been granted.
+foreach(_dead_switch EBLDR_REQUIRE_SIGNATURES EBLDR_RECOVERY_AUTH)
+    if(DEFINED ${_dead_switch} AND NOT ${_dead_switch})
+        message(FATAL_ERROR
+            "${_dead_switch}=OFF: there is no build that skips signature "
+            "verification or recovery authentication. The option was never "
+            "read by any source file and has been removed; drop the flag.")
+    endif()
+endforeach()
 
 # ====================================================================
 # Core Libraries — platform-agnostic, always built
