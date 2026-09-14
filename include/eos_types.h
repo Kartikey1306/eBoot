@@ -150,6 +150,11 @@ typedef struct {
 #define EOS_HASH_SIZE           32
 #define EOS_SIG_MAX_SIZE        64
 
+/* `detail` values stage-0 attaches to EOS_LOG_BOOT_FAIL when it refuses to
+ * jump to stage-1. Named here so a boot log can be read without the source. */
+#define EBLDR_FAIL_STAGE1_HASH  0xBAD1  /* stage-1 hash does not match the build-time value */
+#define EBLDR_FAIL_STAGE1_READ  0xBAD2  /* the flash read of stage-1 failed */
+
 /* ---------------- RTOS Boot Types (Phase 2) ---------------- */
 
 typedef enum {

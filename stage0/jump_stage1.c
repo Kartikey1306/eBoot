@@ -52,7 +52,9 @@ void ebldr_stage0_main(void)
     /* Check for recovery triggers */
     if (ebldr_recovery_triggered(&bctl)) {
         eos_recovery_enter(&bctl);
-        /* Does not return unless recovery instructs a reboot */
+        /* Recovery does not return today; if it ever does, a requested
+         * recovery session must not fall through into a normal boot. */
+        return;
     }
 
     ebldr_watchdog_feed();
@@ -83,7 +85,7 @@ void ebldr_stage0_main(void)
              * own reason and is refused as such, like eos_crypto_verify_image()
              * refuses it in core. */
             if (eos_hal_flash_read(stage1_addr + off, buf, chunk) != EOS_OK) {
-                eos_boot_log_append(EOS_LOG_BOOT_FAIL, EOS_SLOT_NONE, 0xBAD2);
+                eos_boot_log_append(EOS_LOG_BOOT_FAIL, EOS_SLOT_NONE, EBLDR_FAIL_STAGE1_READ);
                 eos_recovery_enter(&bctl);
                 return;
             }
@@ -101,9 +103,14 @@ void ebldr_stage0_main(void)
             if (computed[i] != stage1_expected_hash[i]) match2 = 1;
         }
 
+        /* A mismatch enters recovery and stops here. The only thing that
+         * used to keep it from the jump below was eos_recovery_enter()
+         * never returning -- an invariant its own `int` return type does
+         * not promise -- and IMAGE_VALID was appended on the way past. */
         if (match1 || match2) {
-            eos_boot_log_append(EOS_LOG_BOOT_FAIL, EOS_SLOT_NONE, 0xBAD1);
+            eos_boot_log_append(EOS_LOG_BOOT_FAIL, EOS_SLOT_NONE, EBLDR_FAIL_STAGE1_HASH);
             eos_recovery_enter(&bctl);
+            return;
         }
         eos_boot_log_append(EOS_LOG_IMAGE_VALID, EOS_SLOT_NONE, 0);
 #endif
