@@ -19,6 +19,8 @@ Two source-level rules keep that from coming back:
 """
 
 import re
+
+import pytest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,9 +41,20 @@ def _declared_options():
     return names
 
 
-def _forwarded_definitions():
-    text = _strip_cmake_comments(CMAKE)
-    return set(re.findall(r"add_compile_definitions\(\s*(EBLDR_[A-Z0-9_]+)\s*\)", text))
+def _forwarded_definitions(text=None):
+    """Every EBLDR_ name CMakeLists.txt forwards to the compiler, by any of the
+    three ordinary spellings: add_compile_definitions(EBLDR_X),
+    add_compile_definitions(EBLDR_X=1), and target_compile_definitions(<tgt>
+    <scope> EBLDR_X). The first version of this matched only the first shape,
+    with the closing paren required to follow the name, so the other two
+    re-introduced a dead switch without the guard noticing."""
+    if text is None:
+        text = _strip_cmake_comments(CMAKE)
+    names = set()
+    for args in re.findall(r"(?:add|target)_compile_definitions\(([^)]*)\)", text):
+        for tok in re.findall(r"\bEBLDR_[A-Z0-9_]+(?:=[^\s)]*)?", args):
+            names.add(tok.split("=", 1)[0])
+    return names
 
 
 def _preprocessor_references():
@@ -76,6 +89,47 @@ def test_every_forwarded_definition_is_read_by_a_source_file():
         "CMakeLists.txt forwards these as compile definitions, but no C or "
         "header file under %s tests them, so the option changes nothing: %s"
         % (", ".join(SOURCE_DIRS), unread))
+
+
+# The three shapes a compile definition is forwarded in. The guard once matched
+# only the first; the reviewer demonstrated the other two passing it with a dead
+# name in place. Each is asserted to be collected, with the =value stripped.
+FORWARD_SHAPES = [
+    ("add_compile_definitions(EBLDR_DEAD_A)", "EBLDR_DEAD_A"),
+    ("add_compile_definitions(EBLDR_DEAD_B=1)", "EBLDR_DEAD_B"),
+    ("target_compile_definitions(eboot_core PRIVATE EBLDR_DEAD_C)", "EBLDR_DEAD_C"),
+    ("target_compile_definitions(eboot_core PUBLIC EBLDR_DEAD_D=0 OTHER=1)", "EBLDR_DEAD_D"),
+    ("add_compile_definitions(\n    EBLDR_DEAD_E=1\n    EBLDR_DEAD_F\n)", "EBLDR_DEAD_E"),
+]
+
+
+@pytest.mark.parametrize("snippet, name", FORWARD_SHAPES, ids=[s[1] for s in FORWARD_SHAPES])
+def test_every_way_of_forwarding_a_definition_is_seen(snippet, name):
+    assert name in _forwarded_definitions(snippet)
+
+
+def test_a_forwarded_definition_nothing_reads_is_caught_in_every_shape():
+    """The guard is only worth having if each shape, with a name no source
+    references, fails it. Run against the real tree plus one appended line,
+    which is exactly how a dead switch would come back."""
+    real = _strip_cmake_comments(CMAKE)
+    refs = _preprocessor_references()
+    for snippet, name in FORWARD_SHAPES:
+        unread = _forwarded_definitions(real + "\n" + snippet) - refs
+        assert name in unread, f"{snippet!r} forwarded a name nothing reads and the guard missed it"
+
+
+def test_every_declared_option_is_documented():
+    """test_documented_options_exist checks documented <= declared. This is the
+    other direction: an option that exists and is documented nowhere is a
+    switch a user cannot know about. Clean today, enumerated by the reviewer."""
+    declared = _declared_options()
+    documented = set()
+    for rel in DOC_TABLES:
+        documented |= _documented_options(rel)
+    # EBLDR_BOARD is covered in README prose above the table, not the table itself.
+    undocumented = sorted(declared - documented - {"EBLDR_BOARD"})
+    assert not undocumented, "declared in CMakeLists.txt but in no options table: %s" % undocumented
 
 
 def test_documented_options_exist():
