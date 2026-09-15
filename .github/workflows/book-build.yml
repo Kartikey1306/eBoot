@@ -29,11 +29,12 @@ permissions:
 env:
   PANDOC_VERSION: "3.6.1"
   # 3.4.0, not the newest: 3.5.0 (2026-06-28) migrated the default font from
-  # the `sourcesanspro` package to `sourcesans`, which ubuntu-22.04's TeX Live
-  # 2021 does not ship, so 3.5.x fails with "File `sourcesans.sty' not found"
-  # -- seen on the first run of this change. 3.4.0 is the last release that
-  # uses sourcesanspro (in texlive-fonts-extra, installed below) and already
-  # carries pandoc's default template merged through 3.9.
+  # the `sourcesanspro` package to `sourcesans`, which the runner's
+  # texlive-fonts-extra (ubuntu-latest, 24.04 at the time of writing) does
+  # not ship, so 3.5.x fails with "File `sourcesans.sty' not found" -- seen
+  # on the first run of this change. 3.4.0 is the last release that uses
+  # sourcesanspro (present in texlive-fonts-extra, installed below) and
+  # already carries pandoc's default template merged through 3.9.
   EISVOGEL_VERSION: "3.4.0"
 
 jobs:
