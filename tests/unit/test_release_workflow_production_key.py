@@ -227,6 +227,22 @@ def test_a_truncated_hex_record_is_reported_not_raised(tmp_path):
     assert "truncated" in undecodable[0][1]
 
 
+def test_cross_target_object_files_are_scanned(tmp_path):
+    """CMake names objects .obj under CMAKE_SYSTEM_NAME=Generic -- every cross
+    target. The .o entry existed to scan object files, which is where the key
+    actually lives after keystore.c compiles, and on those builds it matched
+    nothing. The proof step in build.yml learned this first; the scanner
+    had not."""
+    tool = scan_tool()
+    assert ".obj" in tool.SUFFIXES and ".o" in tool.SUFFIXES
+    build = tmp_path / "build"; build.mkdir()
+    (build / "keystore.c.obj").write_bytes(bytes(32) + tool.DEV_KEY)
+    (build / "keystore.c.o").write_bytes(bytes(32) + tool.DEV_KEY)
+    hits, undecodable = tool.scan([build])
+    assert undecodable == []
+    assert sorted(Path(h).name for h in hits) == ["keystore.c.o", "keystore.c.obj"], hits
+
+
 def test_suffix_match_is_case_insensitive(tmp_path):
     """A .BIN is the same artifact as a .bin. Skipping it on case would report
     it clean without reading it, which is the one thing this scan must not do."""

@@ -38,7 +38,10 @@ DEV_KEY = bytes.fromhex(
 # Everything the release workflow collects, plus the intermediates the key
 # actually lives in. Keep RAW and DECODED disjoint and complete: the test
 # checks their union against release.yml's `find ... -name` globs.
-RAW_SUFFIXES = {".elf", ".bin", ".a", ".o", ".efi"}
+# Both .o and .obj: CMake names objects .obj under CMAKE_SYSTEM_NAME=Generic,
+# which is every cross target, so an .o-only entry scanned nothing on exactly
+# the builds whose objects matter most.
+RAW_SUFFIXES = {".elf", ".bin", ".a", ".o", ".obj", ".efi"}
 DECODED_SUFFIXES = {".hex", ".uf2"}
 SUFFIXES = RAW_SUFFIXES | DECODED_SUFFIXES
 

@@ -126,7 +126,8 @@ def check_production_key_hex(hex_key: str) -> None:
                              "every signature would verify against it")
         raise ValueError("the key is on the curve but not in the prime-order "
                          "subgroup -- a mistyped hex digit usually lands here; "
-                         "the verifier refuses it and every image would be rejected")
+                         "the verifier refuses it and every image would be rejected. "
+                         "Check the secret against the key that was generated")
 
 
 def main(argv) -> int:
