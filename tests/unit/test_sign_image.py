@@ -235,3 +235,64 @@ def test_verify_requires_a_signature_when_a_key_is_given(tmp_path):
     r = _verify(tmp_path / "u.eimg", keys / "public.pem")
     assert r.returncode != 0
     assert "expected an Ed25519 signature" in r.stderr
+
+
+# --- --genkey emits the value the build reads, not a header nothing includes ---
+
+def _raw_pubkey_from_pem(pem_path):
+    from cryptography.hazmat.primitives import serialization
+    pub = serialization.load_pem_public_key(pem_path.read_bytes())
+    return pub.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+
+
+def test_genkey_writes_the_hex_the_build_consumes_and_no_dead_header(tmp_path):
+    """--genkey used to write keys/public_key.h defining ebldr_default_pubkey[],
+    a symbol nothing in the tree includes or links, so the documented
+    procedure left the RFC test key as the trust anchor with no error. The
+    build's actual input is -DEBLDR_PRODUCTION_KEY=<64 hex>; that is what
+    must be written, and it must be the key in public.pem."""
+    keys = tmp_path / "keys"
+    r = _run(TOOLS / "sign_image.py", "--genkey", "--output", keys)
+    assert r.returncode == 0, r.stderr
+
+    assert not (keys / "public_key.h").exists(), "the dead header is back"
+    hex_path = keys / "public_key.hex"
+    assert hex_path.exists(), "public_key.hex was not written"
+    hex_key = hex_path.read_text().strip()
+    assert len(hex_key) == 64 and all(c in "0123456789abcdef" for c in hex_key)
+    assert bytes.fromhex(hex_key) == _raw_pubkey_from_pem(keys / "public.pem")
+    # the tool tells the developer exactly how to use it
+    assert "-DEBLDR_PRODUCTION_KEY=" in r.stdout
+    assert "key_lifecycle.md" in r.stdout
+
+
+def test_genkey_output_passes_the_configure_time_key_check(tmp_path):
+    """The gate runs tools/check_production_key.py on EBLDR_PRODUCTION_KEY. A
+    freshly generated key is a real curve point in the prime-order subgroup,
+    so the value --genkey writes must pass that check as-is -- otherwise the
+    documented path produces a key the build refuses."""
+    keys = tmp_path / "keys"
+    assert _run(TOOLS / "sign_image.py", "--genkey", "--output", keys).returncode == 0
+    hex_key = (keys / "public_key.hex").read_text().strip()
+    r = _run(TOOLS / "check_production_key.py", hex_key)
+    assert r.returncode == 0, r.stderr
+
+
+def test_extract_pubkey_writes_hex_too(tmp_path):
+    keys = tmp_path / "keys"
+    assert _run(TOOLS / "sign_image.py", "--genkey", "--output", keys).returncode == 0
+    out = tmp_path / "anchor.hex"
+    r = _run(TOOLS / "sign_image.py", "--extract-pubkey", keys / "private.pem", "--output", out)
+    assert r.returncode == 0, r.stderr
+    assert out.read_text().strip() == (keys / "public_key.hex").read_text().strip()
+    assert "ebldr_default_pubkey" not in out.read_text()
+
+
+def test_quickstart_documents_the_key_path_the_build_reads():
+    """docs/quickstart.md told developers about public_key.h. It must now name
+    the file --genkey writes and the flag that consumes it, and not the header."""
+    doc = (REPO_ROOT / "docs" / "quickstart.md").read_text(encoding="utf-8")
+    assert "public_key.hex" in doc
+    assert "-DEBLDR_PRODUCTION_KEY=" in doc
+    assert "key_lifecycle.md" in doc
+    assert "public_key.h\n" not in doc and "public_key.h." not in doc and "public_key.h " not in doc
