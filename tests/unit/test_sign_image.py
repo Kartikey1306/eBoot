@@ -288,11 +288,40 @@ def test_extract_pubkey_writes_hex_too(tmp_path):
     assert "ebldr_default_pubkey" not in out.read_text()
 
 
-def test_quickstart_documents_the_key_path_the_build_reads():
-    """docs/quickstart.md told developers about public_key.h. It must now name
-    the file --genkey writes and the flag that consumes it, and not the header."""
-    doc = (REPO_ROOT / "docs" / "quickstart.md").read_text(encoding="utf-8")
-    assert "public_key.hex" in doc
-    assert "-DEBLDR_PRODUCTION_KEY=" in doc
-    assert "key_lifecycle.md" in doc
-    assert "public_key.h\n" not in doc and "public_key.h." not in doc and "public_key.h " not in doc
+def _sign_image_flags():
+    """Every long option sign_image.py actually defines."""
+    import re
+    src = (TOOLS / "sign_image.py").read_text(encoding="utf-8", errors="replace")
+    return set(re.findall(r"add_argument\(\s*'(--[a-z-]+)'", src))
+
+
+@pytest.mark.parametrize("rel", ["docs/quickstart.md", "docs/key_lifecycle.md"])
+def test_docs_name_the_key_path_the_build_reads(rel):
+    """Both documents told developers about a header. quickstart named
+    public_key.h; key_lifecycle showed --key-out and --pub-header, two flags
+    sign_image.py has never defined. Each must now name the file --genkey
+    writes and the flag that consumes it, and no header."""
+    doc = (REPO_ROOT / rel).read_text(encoding="utf-8")
+    assert "public_key.hex" in doc, rel
+    assert "-DEBLDR_PRODUCTION_KEY=" in doc, rel
+    assert "public_key.h\n" not in doc and "public_key.h." not in doc and "public_key.h " not in doc, rel
+
+
+@pytest.mark.parametrize("rel", ["docs/quickstart.md", "docs/key_lifecycle.md", "README.md"])
+def test_docs_only_show_sign_image_flags_that_exist(rel):
+    """A documented flag the tool does not have is the same defect as a
+    documented header nothing reads: the reader follows it and gets an
+    argparse error at best, or a silently-wrong build at worst."""
+    import re
+    path = REPO_ROOT / rel
+    if not path.exists():
+        pytest.skip(f"{rel} absent")
+    doc = path.read_text(encoding="utf-8")
+    shown = set()
+    # Lines ending in a backslash continue the invocation. [^\n]* alone
+    # swallows that backslash, so the first version of this never read a
+    # continuation line and could not fail on the flags it was written for.
+    for block in re.findall(r"sign_image\.py(?:[^\n]*\\\n)*[^\n]*", doc):
+        shown |= set(re.findall(r"(--[a-z-]+)", block))
+    phantom = sorted(shown - _sign_image_flags())
+    assert not phantom, f"{rel} documents sign_image.py flags that do not exist: {phantom}"

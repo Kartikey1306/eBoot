@@ -74,10 +74,13 @@ echo "test" | openssl pkeyutl -sign -inkey eboot_signing_key.pem | \
 **Alternative — using eBootloader tooling:**
 
 ```bash
-# Generate keypair and C header in one step
-python3 tools/sign_image.py --genkey \
-    --key-out keys/production_key.pem \
-    --pub-header include/eos_signing_key.h
+# Generate the keypair and the value the bootloader build takes as its
+# trust anchor. Writes keys/private.pem, keys/public.pem and
+# keys/public_key.hex (64 hex characters). There is no header to embed:
+# the anchor is compiled in at configure time from the flag below.
+python3 tools/sign_image.py --genkey --output keys/
+cmake -B build -DEBLDR_BOARD=<board> -DCMAKE_BUILD_TYPE=Release \
+      -DEBLDR_PRODUCTION_KEY=$(cat keys/public_key.hex)
 ```
 
 ### 2.3 Key Storage After Generation
