@@ -28,6 +28,8 @@
 /* Bits of the caps byte in the INFO response. */
 #define RCVR_CAP_RNG        0x01  /* board has an entropy source: AUTH can issue a challenge */
 #define RCVR_CAP_OTP        0x02  /* board has OTP: a shared secret can be provisioned */
+/* INFO response: ack(1) + five little-endian uint32 (20) + caps(1). */
+#define RCVR_INFO_LEN       22
 #define RCVR_CMD_ERASE      0x03
 #define RCVR_CMD_WRITE      0x04
 #define RCVR_CMD_VERIFY     0x05
@@ -242,62 +244,58 @@ static int recovery_handle_ping(void)
     return eos_hal_uart_send(response, sizeof(response));
 }
 
+/* Little-endian store: the recovery protocol's byte order, independent of
+ * the target's. Returns the next offset. */
+static size_t rcvr_put_le32(uint8_t *buf, size_t at, uint32_t v)
+{
+    buf[at + 0] = (uint8_t)(v & 0xFF);
+    buf[at + 1] = (uint8_t)((v >> 8) & 0xFF);
+    buf[at + 2] = (uint8_t)((v >> 16) & 0xFF);
+    buf[at + 3] = (uint8_t)((v >> 24) & 0xFF);
+    return at + 4;
+}
+
 static int recovery_handle_info(void)
 {
     const eos_board_ops_t *ops = eos_hal_get_ops();
     if (!ops)
         return recovery_send_nack();
 
-    /* Packed, like rcvr_packet_t above it, and zeroed before any field is
-     * set. Unpacked, this struct was 24 bytes with three bytes of padding
-     * after ack that nothing wrote, and sizeof(info) sent all 24: an
-     * unauthenticated caller -- INFO needs no auth -- received three bytes
-     * of whatever the previous call had left on the stack, and the repo's
-     * own client, which has always parsed the packed layout, printed them
-     * as the flash size. The layout on the wire is now what the client
-     * reads, and memset() means a future field cannot open a new hole.
+    /* The INFO response is a wire format, so it is built as bytes, not as a
+     * struct. Before this it was an unpacked struct -- 24 bytes, three of
+     * padding after ack that nothing wrote -- and sizeof(info) sent all 24:
+     * an unauthenticated caller (INFO needs no auth) received three bytes of
+     * whatever the previous call had left on the stack, and the repo's own
+     * client, which has always parsed the packed layout, printed them as the
+     * flash size. A byte buffer cannot have padding on any toolchain, needs
+     * no packing attribute or pragma to stay 22 bytes, and puts the five
+     * words on the wire little-endian regardless of the target's byte order
+     * -- which is what tools/uart_recovery.py has always assumed ('<IIIII').
+     * Layout: ack | flash_size | slot_a_addr | slot_a_size | slot_b_addr |
+     * slot_b_size | caps, uint32s little-endian. See docs/architecture.md.
      *
      * caps says what the board can do, so an integrator on a board with no
      * entropy source learns that here, before authenticating -- which on
      * such a board is impossible by construction, and cost 15 s of backoff
-     * to discover. It reveals nothing an attacker could not learn by trying.
+     * to discover. It reveals nothing an attacker could not learn by trying
+     * (ADR-021).
      */
-#ifdef _MSC_VER
-#pragma pack(push, 1)
-#endif
-    struct rcvr_info {
-        uint8_t  ack;
-        uint32_t flash_size;
-        uint32_t slot_a_addr;
-        uint32_t slot_a_size;
-        uint32_t slot_b_addr;
-        uint32_t slot_b_size;
-        uint8_t  caps;            /* RCVR_CAP_* */
-    }
-#if defined(__GNUC__) || defined(__clang__)
-    __attribute__((packed))
-#endif
-    info;
-#ifdef _MSC_VER
-#pragma pack(pop)
-#endif
-    /* The layout is the contract with tools/uart_recovery.py. A toolchain
-     * that honours neither the attribute nor the pragma would put the
-     * padding -- and the leak -- straight back, with nothing failing; this
-     * turns that into a compile error instead of a shipped defect. */
-    _Static_assert(sizeof(struct rcvr_info) == 22, "INFO response must be 22 bytes packed");
+    uint8_t info[RCVR_INFO_LEN];
+    size_t  i = 0;
+    memset(info, 0, sizeof(info));
+    info[i++] = RCVR_ACK;
+    i = rcvr_put_le32(info, i, ops->flash_size);
+    i = rcvr_put_le32(info, i, ops->slot_a_addr);
+    i = rcvr_put_le32(info, i, ops->slot_a_size);
+    i = rcvr_put_le32(info, i, ops->slot_b_addr);
+    i = rcvr_put_le32(info, i, ops->slot_b_size);
+    info[i++] = (uint8_t)((ops->rng_get  ? RCVR_CAP_RNG : 0) |
+                          (ops->otp_read ? RCVR_CAP_OTP : 0));
+    /* Every byte accounted for: the length is the contract, not a sizeof. */
+    if (i != RCVR_INFO_LEN)
+        return recovery_send_nack();
 
-    memset(&info, 0, sizeof(info));
-    info.ack         = RCVR_ACK;
-    info.flash_size  = ops->flash_size;
-    info.slot_a_addr = ops->slot_a_addr;
-    info.slot_a_size = ops->slot_a_size;
-    info.slot_b_addr = ops->slot_b_addr;
-    info.slot_b_size = ops->slot_b_size;
-    info.caps        = (uint8_t)((ops->rng_get  ? RCVR_CAP_RNG : 0) |
-                                 (ops->otp_read ? RCVR_CAP_OTP : 0));
-
-    return eos_hal_uart_send(&info, sizeof(info));
+    return eos_hal_uart_send(info, sizeof(info));
 }
 
 static int recovery_handle_erase(eos_slot_t slot)
