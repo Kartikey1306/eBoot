@@ -16,19 +16,8 @@ MEMORY
 
 _estack = ORIGIN(RAM) + LENGTH(RAM);
 
-/* Anchored the way the stage-0 script for this board is (ENTRY plus a kept
- * vector section); without both, --gc-sections leaves an empty image. */
-ENTRY(Reset_Handler)
-
 SECTIONS
 {
-    .vectors :
-    {
-        . = ALIGN(4);
-        KEEP(*(.vectors))
-        . = ALIGN(4);
-    } > FLASH
-
     .text :
     {
         . = ALIGN(4);

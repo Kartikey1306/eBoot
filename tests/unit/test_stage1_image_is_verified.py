@@ -16,9 +16,11 @@ Three independent guards, each of which alone would have caught it:
 
 1. the embed tool refuses an empty image, and one below a size floor;
 2. stage-0 refuses stage1_expected_size == 0 at boot, before the loop;
-3. every board's stage-1 linker script is anchored (ENTRY plus the kept
-   vector section its own stage-0 script keeps), stage1/reset_entry.c
-   provides that section, and the stage-1 executable is built from it.
+3. every board's stage-1 linker script is anchored -- ENTRY, and both of
+   the board's scripts keep a section some source file actually emits --
+   stage1/reset_entry.c provides that section, and the stage-1 executable
+   is built from it. A script that keeps a name nothing emits keeps
+   nothing, and the link succeeds with an empty image and no warning.
 
 The stm32f4 image is ~13 KiB after the fix; the cross-compile jobs in
 ci.yml and build.yml exercise the real link.
@@ -28,6 +30,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOL = REPO_ROOT / "tools" / "embed_stage1_hash.py"
@@ -122,21 +126,60 @@ def _kept_sections(script):
     return set(re.findall(r"KEEP\s*\(\s*\*\s*\(\s*(\.[\w.]+)\s*\)\s*\)", script))
 
 
-def test_every_stage1_linker_script_is_anchored_like_its_stage0():
-    stage1_scripts = sorted((REPO_ROOT / "boards").glob("*/*_stage1.ld"))
-    assert stage1_scripts, "no stage-1 linker scripts found"
-    for s1 in stage1_scripts:
-        s0 = s1.with_name(s1.name.replace("_stage1.ld", "_stage0.ld"))
-        assert s0.exists(), f"{s1.name} has no stage-0 counterpart"
-        text1 = s1.read_text(encoding="utf-8")
-        assert re.search(r"^\s*ENTRY\s*\(\s*Reset_Handler\s*\)", text1, re.M), \
-            f"{s1.relative_to(REPO_ROOT)} has no ENTRY(Reset_Handler)"
-        kept0 = _kept_sections(s0.read_text(encoding="utf-8"))
-        kept1 = _kept_sections(text1)
-        assert kept0, f"{s0.name} keeps no vector section"
-        assert kept0 <= kept1, (
-            f"{s1.relative_to(REPO_ROOT)} keeps {sorted(kept1)} but its stage-0 script "
-            f"keeps {sorted(kept0)}; the stage-1 image has to be anchored the same way")
+def _emitted_sections():
+    """Every section name some C file under stage0/, stage1/ or boards/ places
+    code or data in with __attribute__((section("..."))). A linker script
+    that KEEPs anything else keeps nothing, and --gc-sections then discards
+    the whole image without a warning -- which is how cortex_r5 has shipped
+    a 0-byte stage-0 (#137)."""
+    names = set()
+    for d in ("stage0", "stage1", "boards"):
+        for path in (REPO_ROOT / d).rglob("*.c"):
+            names.update(re.findall(r'section\s*\(\s*"(\.[\w.]+)"\s*\)',
+                                    path.read_text(encoding="utf-8", errors="replace")))
+    assert names, "no __attribute__((section(...))) found anywhere"
+    return names
+
+
+def _boards_with_stage1():
+    return sorted(p.parent.name for p in (REPO_ROOT / "boards").glob("*/*_stage1.ld"))
+
+
+# A port whose linker scripts keep a section nothing emits, so both of its
+# images link to zero bytes. Its entry shape (a direct branch to the image
+# base, per board_cortex_r5.c) is a port decision; until it is made, the
+# strict xfail below pins the state: the test fails the day it is fixed,
+# so the mark has to come off with the fix.
+KNOWN_UNANCHORED = {"cortex_r5": "#137: cortex_r5 keeps .vectors, which no source file emits"}
+
+
+def _maybe_xfail(board):
+    if board in KNOWN_UNANCHORED:
+        return pytest.param(board, marks=pytest.mark.xfail(reason=KNOWN_UNANCHORED[board], strict=True))
+    return board
+
+
+def test_there_are_stage1_linker_scripts():
+    assert "stm32f4" in _boards_with_stage1()
+
+
+@pytest.mark.parametrize("board", [_maybe_xfail(b) for b in _boards_with_stage1()])
+def test_stage1_linker_script_is_anchored_on_a_section_the_tree_emits(board):
+    s1 = REPO_ROOT / "boards" / board / f"{board}_stage1.ld"
+    s0 = REPO_ROOT / "boards" / board / f"{board}_stage0.ld"
+    assert s0.exists(), f"{s1.name} has no stage-0 counterpart"
+    emitted = _emitted_sections()
+    text1 = s1.read_text(encoding="utf-8")
+    assert re.search(r"^\s*ENTRY\s*\(\s*Reset_Handler\s*\)", text1, re.M), \
+        f"{s1.relative_to(REPO_ROOT)} has no ENTRY(Reset_Handler)"
+    for script in (s0, s1):
+        kept = _kept_sections(script.read_text(encoding="utf-8"))
+        assert kept, f"{script.relative_to(REPO_ROOT)} keeps no section, so nothing anchors its image"
+        phantom = sorted(kept - emitted)
+        assert not phantom, (
+            f"{script.relative_to(REPO_ROOT)} keeps {phantom}, which no .c under stage0/, "
+            f"stage1/ or boards/ emits (emitted: {sorted(emitted)}); --gc-sections will "
+            f"discard the image")
 
 
 def test_stage1_has_a_reset_entry_that_owns_the_vector_table():
