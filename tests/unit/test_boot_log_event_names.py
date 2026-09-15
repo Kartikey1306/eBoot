@@ -34,10 +34,20 @@ def _strip_c_comments(text):
     return re.sub(r"//[^\n]*", " ", text)
 
 
-def header_events():
-    """{name: code} for every #define EOS_LOG_<NAME> <hex> in eos_types.h."""
-    text = TYPES_H.read_text(encoding="utf-8")
-    found = re.findall(r"^\s*#define\s+EOS_LOG_([A-Z0-9_]+)\s+(0x[0-9A-Fa-f]+)\s*$", text, re.M)
+EVENT_DEFINE = re.compile(r"^\s*#define\s+EOS_LOG_([A-Z0-9_]+)\s+(0x[0-9A-Fa-f]+)\b", re.M)
+
+
+def header_events(text=None):
+    """{name: code} for every #define EOS_LOG_<NAME> <hex> in eos_types.h.
+
+    The match stops at the value rather than at end of line: this header
+    writes trailing comments on its defines (EOS_LOG_MAGIC has one), and a
+    parser that anchors on end of line silently drops any code written that
+    way -- under-collection, which no downstream rule can notice.
+    """
+    if text is None:
+        text = TYPES_H.read_text(encoding="utf-8")
+    found = EVENT_DEFINE.findall(text)
     events = {name: int(code, 16) for name, code in found if name != "MAGIC"}
     assert events, "no EOS_LOG_* event codes found in include/eos_types.h"
     return events
@@ -107,3 +117,27 @@ def test_the_authentication_events_are_named_and_decodable():
     assert events["AUTH_FAIL"] == 0x21
     assert events["AUTH_UNPROVISIONED"] == 0x22
     assert client_events()[0x22] == "AUTH_UNPROVISIONED"
+
+
+def test_header_parser_sees_a_define_with_a_trailing_comment():
+    """The failure mode of the parser is collecting fewer rows than the file
+    has, which nothing downstream can detect; pin the one style this header
+    already uses that an end-of-line anchor would miss."""
+    sample = (
+        "#define EOS_LOG_BOOT_START      0x01\n"
+        "#define EOS_LOG_AUTH_NO_ENTROPY    0x23  /* board provides no rng_get */\n"
+        "#define EOS_LOG_WITH_CPP_COMMENT 0x24 // trailing\n"
+        "#define EOS_LOG_MAGIC       0x454C4F47  /* \"ELOG\" */\n"
+    )
+    events = header_events(sample)
+    assert events == {"BOOT_START": 0x01, "AUTH_NO_ENTROPY": 0x23, "WITH_CPP_COMMENT": 0x24}
+
+
+def test_header_parser_collects_every_event_define_in_the_real_header():
+    """Cross-check the parser against a looser count of the same lines, so a
+    future style the strict pattern misses shows up as a mismatch."""
+    text = TYPES_H.read_text(encoding="utf-8")
+    loose = [m.group(1) for m in re.finditer(r"^\s*#define\s+EOS_LOG_([A-Z0-9_]+)\b", text, re.M)
+             if m.group(1) != "MAGIC"]
+    assert sorted(header_events()) == sorted(loose)
+
