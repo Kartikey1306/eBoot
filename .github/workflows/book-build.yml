@@ -177,6 +177,12 @@ jobs:
           # and scrlayer-scrpage's \newcommand failed: "Command \chead already
           # defined". Two header packages, one command. Every run since both
           # arrived in ef0dc50 died there, whatever the Eisvogel or pandoc version.
+          #
+          # No -V author=...: a -V value is inserted into the LaTeX verbatim, and
+          # the author string contains '&', which LaTeX reads as an alignment tab
+          # ("Misplaced alignment tab character &", run 3 of #135). book.md's
+          # metadata already carries the same author, and metadata is escaped by
+          # pandoc. Any -V value must be LaTeX-safe; title/subtitle/date are.
 
           pandoc \
             book.md \
@@ -196,7 +202,6 @@ jobs:
             -V page-background-color="ffffff" \
             -V "title=${{ steps.meta.outputs.title }}" \
             -V "subtitle=Version ${{ steps.meta.outputs.version }}" \
-            -V "author=Srikanth Patchava & EmbeddedOS Contributors" \
             -V "date=$(date +'%B %Y')" \
             -V toc=true \
             -V toc-depth=3 \
