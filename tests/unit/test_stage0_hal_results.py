@@ -70,7 +70,12 @@ def _result_is_examined(statement, name, block_after):
     assignment at all.
     """
     head = statement[:statement.index(name)]
-    if re.match(r"(if|while)\s*\(", head) or re.match(r"return\b", head):
+    # Inside the condition's parentheses, not merely after an `if`: the head of
+    # `if (need) read(...)` also starts with "if (", and that call's result is
+    # discarded in the body. An unclosed "(" in the head is what says the call
+    # sits within the condition.
+    in_condition = re.match(r"(if|while)\s*\(", head) and head.count("(") > head.count(")")
+    if in_condition or re.match(r"return\b", head):
         return True
     assigned = re.match(r"(?:[A-Za-z_][\w\s\*]*\s)?([A-Za-z_]\w*)\s*=\s*$", head)
     if not assigned:
@@ -152,6 +157,20 @@ def test_the_guard_rejects_an_assigned_but_untested_result(tmp_path):
     text = _strip_comments(ifdef)
     (stmt, end), = _statements_calling(text, "eos_hal_flash_read")
     assert not _result_is_examined(stmt, "eos_hal_flash_read", _rest_of_enclosing_block(text, end))
+
+    # A call as a one-line if/while body: the statement starts with "if ("
+    # but the call is outside the condition and its result is discarded.
+    for body in ("void f(int need) {\n    if (need) eos_hal_flash_read(0, 0, 0);\n}\n",
+                 "void f(int n) {\n    while (n--) eos_hal_flash_read(0, 0, 0);\n}\n"):
+        text = _strip_comments(body)
+        (stmt, end), = _statements_calling(text, "eos_hal_flash_read")
+        assert not _result_is_examined(stmt, "eos_hal_flash_read", _rest_of_enclosing_block(text, end)), stmt
+
+    # A call deeper inside a condition is still inside it.
+    nested = "void f(int ok) {\n    if (ok && eos_hal_flash_read(0, 0, 0) != EOS_OK) return;\n}\n"
+    text = _strip_comments(nested)
+    (stmt, end), = _statements_calling(text, "eos_hal_flash_read")
+    assert _result_is_examined(stmt, "eos_hal_flash_read", _rest_of_enclosing_block(text, end))
 
     tested = "void f(void) {\n    int rc = eos_hal_flash_read(0, 0, 0);\n    if (rc != EOS_OK) return;\n}\n"
     text = _strip_comments(tested)
