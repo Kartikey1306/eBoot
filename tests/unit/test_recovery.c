@@ -545,6 +545,70 @@ TEST(test_verify_rejects_oversized_image_before_reading_payload)
     ASSERT(verify_payload_bytes_read == 0);
 }
 
+#define RCVR_CMD_INFO 0x02
+#define RCVR_CAP_RNG  0x01
+#define RCVR_CAP_OTP  0x02
+#define INFO_WIRE_LEN 22   /* ack(1) + five uint32 + caps(1), packed */
+
+static uint32_t le32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+/* Drive RCVR_CMD_INFO -- which needs no authentication -- and decode the
+ * response exactly as tools/uart_recovery.py does. Before the fix the struct was
+ * unpacked (24 bytes, three of padding after ack that nothing wrote) and
+ * sizeof(info) sent all of it, so an unauthenticated caller received three
+ * bytes of whatever the previous call left on the stack, and the client
+ * decoded them as the flash size. out_buf is poisoned first so any byte the
+ * firmware does not write shows as 0xA5 rather than as a lucky zero. */
+TEST(test_info_sends_the_packed_layout_the_client_parses_and_nothing_else)
+{
+    memset(out_buf, 0xA5, sizeof(out_buf));
+    uint8_t pkt[8];
+    put_pkt(pkt, RCVR_CMD_INFO, 0, 0, 0);
+    script_append(pkt, sizeof(pkt));
+
+    eos_bootctl_t bctl;
+    eos_bootctl_init_defaults(&bctl);
+    if (setjmp(exit_jmp) == 0) {
+        eos_recovery_enter(&bctl);
+    }
+
+    ASSERT(out_len == INFO_WIRE_LEN);           /* not 24: no padding on the wire */
+    ASSERT(out_buf[0] == RCVR_ACK);
+    ASSERT(le32(&out_buf[1])  == SIM_FLASH_SIZE);   /* was 0x00A5A5A5 -- the leak */
+    ASSERT(le32(&out_buf[5])  == SIM_SLOT_A_ADDR);
+    ASSERT(le32(&out_buf[9])  == SIM_SLOT_A_SIZE);
+    ASSERT(le32(&out_buf[13]) == SIM_SLOT_B_ADDR);
+    ASSERT(le32(&out_buf[17]) == SIM_SLOT_B_SIZE);
+    ASSERT(out_buf[21] == (RCVR_CAP_RNG | RCVR_CAP_OTP));   /* sim_ops has both */
+    ASSERT(out_buf[22] == 0xA5);                 /* the byte after: untouched */
+}
+
+/* The capability byte is the answer to "why does AUTH always NACK?" on a board
+ * with no entropy source, delivered before the 15 s of backoff it used to cost
+ * to find out. It is derived from the ops table, not configured. */
+TEST(test_info_reports_a_board_without_an_entropy_source)
+{
+    eos_board_ops_t no_rng = sim_ops;
+    no_rng.rng_get = NULL;
+    eos_hal_init(&no_rng);
+
+    uint8_t pkt[8];
+    put_pkt(pkt, RCVR_CMD_INFO, 0, 0, 0);
+    script_append(pkt, sizeof(pkt));
+    eos_bootctl_t bctl;
+    eos_bootctl_init_defaults(&bctl);
+    if (setjmp(exit_jmp) == 0) {
+        eos_recovery_enter(&bctl);
+    }
+
+    ASSERT(out_len == INFO_WIRE_LEN);
+    ASSERT((out_buf[21] & RCVR_CAP_RNG) == 0);
+    ASSERT((out_buf[21] & RCVR_CAP_OTP) != 0);   /* OTP is still there */
+}
+
 int main(void)
 {
     printf("=== test_recovery ===\n");
@@ -555,6 +619,8 @@ int main(void)
     run_test_write_refuses_a_slot_the_board_leaves_unmapped();
     run_test_auth_refuses_when_the_board_has_no_entropy_source();
     run_test_verify_rejects_oversized_image_before_reading_payload();
+    run_test_info_sends_the_packed_layout_the_client_parses_and_nothing_else();
+    run_test_info_reports_a_board_without_an_entropy_source();
     printf("%d/%d tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;
 }

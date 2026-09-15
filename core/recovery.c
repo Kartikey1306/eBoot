@@ -25,6 +25,9 @@
 /* Recovery protocol commands */
 #define RCVR_CMD_PING       0x01
 #define RCVR_CMD_INFO       0x02
+/* Bits of the caps byte in the INFO response. */
+#define RCVR_CAP_RNG        0x01  /* board has an entropy source: AUTH can issue a challenge */
+#define RCVR_CAP_OTP        0x02  /* board has OTP: a shared secret can be provisioned */
 #define RCVR_CMD_ERASE      0x03
 #define RCVR_CMD_WRITE      0x04
 #define RCVR_CMD_VERIFY     0x05
@@ -245,21 +248,43 @@ static int recovery_handle_info(void)
     if (!ops)
         return recovery_send_nack();
 
-    struct {
+    /* Packed, like rcvr_packet_t above it, and zeroed before any field is
+     * set. Unpacked, this struct was 24 bytes with three bytes of padding
+     * after ack that nothing wrote, and sizeof(info) sent all 24: an
+     * unauthenticated caller -- INFO needs no auth -- received three bytes
+     * of whatever the previous call had left on the stack, and the repo's
+     * own client, which has always parsed the packed layout, printed them
+     * as the flash size. The layout on the wire is now what the client
+     * reads, and memset() means a future field cannot open a new hole.
+     *
+     * caps says what the board can do, so an integrator on a board with no
+     * entropy source learns that here, before authenticating -- which on
+     * such a board is impossible by construction, and cost 15 s of backoff
+     * to discover. It reveals nothing an attacker could not learn by trying.
+     */
+    struct rcvr_info {
         uint8_t  ack;
         uint32_t flash_size;
         uint32_t slot_a_addr;
         uint32_t slot_a_size;
         uint32_t slot_b_addr;
         uint32_t slot_b_size;
-    } info;
+        uint8_t  caps;            /* RCVR_CAP_* */
+    }
+#if defined(__GNUC__) || defined(__clang__)
+    __attribute__((packed))
+#endif
+    info;
 
+    memset(&info, 0, sizeof(info));
     info.ack         = RCVR_ACK;
     info.flash_size  = ops->flash_size;
     info.slot_a_addr = ops->slot_a_addr;
     info.slot_a_size = ops->slot_a_size;
     info.slot_b_addr = ops->slot_b_addr;
     info.slot_b_size = ops->slot_b_size;
+    info.caps        = (uint8_t)((ops->rng_get  ? RCVR_CAP_RNG : 0) |
+                                 (ops->otp_read ? RCVR_CAP_OTP : 0));
 
     return eos_hal_uart_send(&info, sizeof(info));
 }
