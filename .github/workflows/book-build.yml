@@ -168,6 +168,16 @@ jobs:
             CITE_ARGS="--citeproc --bibliography=references.bib"
           fi
 
+          # Header and footer go through Eisvogel's own variables (header-left,
+          # header-right, footer-center; footer-right is the template's default
+          # page number). The template builds them with KOMA's scrlayer-scrpage,
+          # which defines \chead. This step used to inject \usepackage{fancyhdr}
+          # and \fancyhead/\fancyfoot through header-includes, which the template
+          # places BEFORE its own header setup -- so fancyhdr defined \chead first
+          # and scrlayer-scrpage's \newcommand failed: "Command \chead already
+          # defined". Two header packages, one command. Every run since both
+          # arrived in ef0dc50 died there, whatever the Eisvogel or pandoc version.
+
           pandoc \
             book.md \
             -o "${{ steps.meta.outputs.pdf_name }}" \
@@ -202,6 +212,9 @@ jobs:
             -V float-placement-figure=H \
             -V caption-justification=centering \
             -V table-use-row-colors=true \
+            -V "header-left=\leftmark" \
+            -V "header-right=${{ steps.meta.outputs.version }}" \
+            -V "footer-center=EmbeddedOS Press — embeddedos-org.github.io" \
             -V "header-includes=\
               \usepackage{float}\
               \usepackage{booktabs}\
@@ -210,14 +223,6 @@ jobs:
               \captionsetup{font=small,labelfont=bf,format=hang}\
               \captionsetup[figure]{name=Figure}\
               \captionsetup[table]{name=Table}\
-              \usepackage{fancyhdr}\
-              \pagestyle{fancy}\
-              \fancyhead[L]{\small\leftmark}\
-              \fancyhead[R]{\small ${{ steps.meta.outputs.version }}}\
-              \fancyfoot[C]{\small EmbeddedOS Press — embeddedos-org.github.io}\
-              \fancyfoot[R]{\thepage}\
-              \renewcommand{\headrulewidth}{0.4pt}\
-              \renewcommand{\footrulewidth}{0.2pt}\
               \usepackage{graphicx}\
               \makeatletter\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}\makeatother\
               \setkeys{Gin}{width=\maxwidth,keepaspectratio}" \
