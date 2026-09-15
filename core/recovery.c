@@ -262,6 +262,9 @@ static int recovery_handle_info(void)
      * such a board is impossible by construction, and cost 15 s of backoff
      * to discover. It reveals nothing an attacker could not learn by trying.
      */
+#ifdef _MSC_VER
+#pragma pack(push, 1)
+#endif
     struct rcvr_info {
         uint8_t  ack;
         uint32_t flash_size;
@@ -275,6 +278,14 @@ static int recovery_handle_info(void)
     __attribute__((packed))
 #endif
     info;
+#ifdef _MSC_VER
+#pragma pack(pop)
+#endif
+    /* The layout is the contract with tools/uart_recovery.py. A toolchain
+     * that honours neither the attribute nor the pragma would put the
+     * padding -- and the leak -- straight back, with nothing failing; this
+     * turns that into a compile error instead of a shipped defect. */
+    _Static_assert(sizeof(struct rcvr_info) == 22, "INFO response must be 22 bytes packed");
 
     memset(&info, 0, sizeof(info));
     info.ack         = RCVR_ACK;

@@ -124,11 +124,41 @@ class RecoveryClient:
     # ack(1) + five uint32 (20) + caps(1): the packed layout core/recovery.c sends.
     INFO_LEN = 22
 
+    # What firmware before the packed-struct fix sent: ack, three bytes of
+    # padding, then the five fields -- 24 bytes, never the 21 the client read.
+    LEGACY_INFO_LEN = 24
+    LEGACY_PROBE_TIMEOUT = 0.25   # seconds; generous for two bytes on any baud
+
     def info(self):
         self._send_packet(CMD_INFO)
         response = self.ser.read(self.INFO_LEN)
         if len(response) < self.INFO_LEN or response[0] != ACK:
             print("Failed to get device info")
+            return False
+        # A device running pre-fix firmware sends 24 bytes. read(22) of those
+        # succeeds, and decoding it prints the leaked padding as the flash size
+        # and invents a capability byte from a slot-size byte -- the exact
+        # defect this client is meant to have stopped showing. So: probe for
+        # more, with a short timeout of its own -- two bytes at 115200 baud
+        # take well under a millisecond, and the port's 5 s TIMEOUT is for
+        # flash operations, not this. A short read rather than in_waiting,
+        # because on a real UART those two bytes may still be on the wire
+        # when read(22) returns and in_waiting would report 0.
+        saved_timeout = self.ser.timeout
+        self.ser.timeout = self.LEGACY_PROBE_TIMEOUT
+        try:
+            extra = self.ser.read(self.LEGACY_INFO_LEN - self.INFO_LEN)
+        finally:
+            self.ser.timeout = saved_timeout
+        if extra:
+            print("Device is running pre-fix firmware: INFO responded with "
+                  f"{self.INFO_LEN + len(extra)} bytes (unpacked layout). "
+                  "Its geometry cannot be decoded reliably and its first three "
+                  "bytes after ACK are uninitialised stack. Update the "
+                  "bootloader before using this tool.")
+            # drain whatever else is queued so the next command starts clean
+            while self.ser.read(64):
+                pass
             return False
 
         flash_size, slot_a_addr, slot_a_size, slot_b_addr, slot_b_size = \

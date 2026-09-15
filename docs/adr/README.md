@@ -14,6 +14,7 @@ superseded by a later record that names it.
 | ADR | Title | Status |
 |---|---|---|
 | 020 | [Install path verifies the signature before anti-rollback](ADR-020-install-path-verifies-signature-before-anti-rollback.md) | Proposed |
+| 021 | [Recovery INFO stays unauthenticated and carries a capability byte; LOG does not](ADR-021-recovery-info-stays-unauthenticated.md) | Proposed |
 
 ## Note on numbering
 
