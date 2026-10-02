@@ -6,11 +6,11 @@ on:
   workflow_dispatch:
 
 env:
-  # v0.1.0 has never existed. embeddedos-org/EoSim tags v1.0.0 through
-  # v3.0.1, and no release publishes a wheel -- so the pip install below
-  # 404s and this workflow has never had a green run. v1.5.0 is the
-  # release marked Latest.
-  EOSIM_VERSION: "1.5.0"
+  # Pin the newest EoSim tag. v3.0.1 is self-consistent: the tag's
+  # pyproject.toml declares version 3.0.1, so tag name == package version.
+  # (v1.5.0 remains the release marked Latest but its tag declares
+  # 3.0.1 -- tag/version mismatch filed as embeddedos-org/EoSim#36.)
+  EOSIM_VERSION: "3.0.1"
 
 permissions:
   contents: read
@@ -45,15 +45,13 @@ jobs:
         run: git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim && pip install /tmp/EoSim
       - name: Verify installation
         run: |
-          # Assert, do not print. The tag and the package's declared version
-          # disagree upstream -- v1.5.0 ships "eosim, version 2.0.0" -- so
-          # pinning to a tag does not pin what the name suggests, and nothing
-          # here would notice if the tag moved. Raised against EoSim
-          # separately; asserted here so this workflow stops being the place
-          # it goes unnoticed.
+          # Assert the installed package version matches the pinned tag.
+          # v3.0.1 is self-consistent (tag name == declared version); the
+          # older v1.5.0 tag declared 3.0.1, which broke this gate until
+          # the pin moved (embeddedos-org/EoSim#36).
           eosim --version
-          eosim --version | grep -qE "2\.0\.0" || {
-            echo "::error::eosim --version is not the expected 2.0.0 for tag v${{ env.EOSIM_VERSION }}"
+          eosim --version | grep -qE "3\.0\.1" || {
+            echo "::error::eosim --version is not the expected 3.0.1 for tag v${{ env.EOSIM_VERSION }}"
             eosim --version
             exit 1
           }
