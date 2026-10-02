@@ -69,6 +69,8 @@ others (default `none` = native core-only build).
 | `EBLDR_SANITIZE` | `OFF` | ASan/UBSan for host builds |
 | `EBLDR_BUILD_FUZZ` | `OFF` | Build libFuzzer targets |
 | `EBLDR_BUILD_TESTS` | `OFF` | Build unit tests (native only); set to `ON` to enable |
+| `EBLDR_PRODUCTION_KEY` | `""` (empty) | Ed25519 public key (64 hex chars) compiled in as the trust anchor for a board without OTP; a Release build of a real board refuses to configure without it |
+| `EBLDR_ALLOW_DEV_KEY` | `OFF` | Let a Release build of a real board fall back to the RFC 8032 test key (bring-up and CI cross-compiles only; never a device) |
 
 Ed25519 signature verification and recovery-command authentication are not
 options: no build of this bootloader skips either. `EBLDR_REQUIRE_SIGNATURES`
@@ -97,3 +99,4 @@ See [`docs/`](docs/): `quickstart.md`, `architecture.md`, `secure_boot_chain.md`
 ## License
 
 Licensed under the [MIT License](LICENSE).
+
