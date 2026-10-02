@@ -207,7 +207,8 @@ void eos_sha512_update(eos_sha512_ctx_t *ctx,
         if (ctx->bitlen[1] < old_low)
             ctx->bitlen[0]++;
 
-        ctx->bitlen[0] += (uint64_t)copy >> 61;
+        /* copy <= 128 - buffer_len, so copy << 3 fits the low word and can
+         * wrap it at most once; the old_low comparison above is the carry. */
 
         if (ctx->buffer_len == 128) {
             sha512_transform(ctx, ctx->buffer);
