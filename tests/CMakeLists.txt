@@ -216,6 +216,26 @@ target_include_directories(eboot_test_eos_sign_boot_path PRIVATE ${CMAKE_CURRENT
 add_test(NAME test_eos_sign_boot_path COMMAND eboot_test_eos_sign_boot_path)
 list(APPEND EBLDR_UNIT_TESTS test_eos_sign_boot_path)
 
+# --- test_keystore_production: core/keystore.c with EBLDR_PRODUCTION_KEY ---
+# eboot_core carries the development-key keystore, so this suite compiles
+# core/keystore.c itself, with the definition a Release board build gets and
+# a fixture key generated the same way (cmake/ProductionKey.cmake). It still
+# links eboot_core for eos_crypto_hash(): the suite's own keystore.o already
+# defines every keystore symbol, so the archive's copy is never pulled in and
+# the object under test is the one compiled here. The key is RFC 8032
+# section 7.1 TEST 2's public key.
+ebldr_write_production_key_source(
+    "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/test_production_key.c")
+add_executable(eboot_test_keystore_production
+    unit/test_keystore_production.c
+    ../core/keystore.c
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/test_production_key.c)
+target_compile_definitions(eboot_test_keystore_production PRIVATE EBLDR_PRODUCTION_KEY=1)
+target_link_libraries(eboot_test_keystore_production PRIVATE eboot_core)
+add_test(NAME test_keystore_production COMMAND eboot_test_keystore_production)
+list(APPEND EBLDR_UNIT_TESTS test_keystore_production)
+
 # --- Valgrind test targets ---
 #
 # The list is derived from the suites registered above, not written out again.
