@@ -105,9 +105,22 @@ jobs:
           pip install /tmp/EoSim
           # (platforms ship in-package since v3.0.2; no copy needed)
       - name: Simulate ${{ matrix.platform }}
+        # EoSim v3.0.2+ no longer fakes a pass with no firmware: `eosim run`
+        # without --firmware exits 2 with "NO FIRMWARE" (previously it
+        # printed PASSED after stepping over zeroed memory). Assert that
+        # honest contract: the engine must boot its VM harness and report
+        # no-firmware, not crash. Real firmware execution needs a built
+        # image (see the tracking issue); this gate stays honest meanwhile.
+        shell: bash
         run: |
-          eosim run ${{ matrix.platform }} --headless --timeout 10
-          echo "${{ matrix.platform }}: PASSED"
+          set +e
+          out=$(eosim run ${{ matrix.platform }} --headless --timeout 10 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          echo "$out" | grep -q "NO FIRMWARE" || { echo "::error::expected the NO FIRMWARE contract message"; exit 1; }
+          [ "$code" -eq 2 ] || { echo "::error::expected exit 2, got $code"; exit 1; }
+          echo "${{ matrix.platform }}: PASSED (no-firmware contract)"
 
   nested-guest-install:
     name: Guest OS Install (${{ matrix.guest }})
@@ -133,10 +146,18 @@ jobs:
           git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim && pip install /tmp/EoSim
           # (platforms ship in-package since v3.0.2; no copy needed)
       - name: Boot guest and test EoSim inside
+        # Same no-firmware contract as nested-simulation (see above).
+        shell: bash
         run: |
           echo "=== Nested Guest: ${{ matrix.guest }} ==="
-          eosim run ${{ matrix.platform }} --headless --timeout 15
-          echo "${{ matrix.guest }}: PASSED"
+          set +e
+          out=$(eosim run ${{ matrix.platform }} --headless --timeout 15 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          echo "$out" | grep -q "NO FIRMWARE" || { echo "::error::expected the NO FIRMWARE contract message"; exit 1; }
+          [ "$code" -eq 2 ] || { echo "::error::expected exit 2, got $code"; exit 1; }
+          echo "${{ matrix.guest }}: PASSED (no-firmware contract)"
 
   windows-sanity:
     name: Windows Sanity
