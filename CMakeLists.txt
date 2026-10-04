@@ -421,9 +421,21 @@ if(NOT EBLDR_BOARD STREQUAL "none")
                 "without the integrity check.")
         endif()
 
+        # The Cortex-R5 needs its own reset entry: the generic
+        # stage0/reset_entry.c is Cortex-M shaped (a .isr_vector address
+        # table) while the R5 script keeps .vectors and the core fetches
+        # instructions, not addresses. Without an R5 startup nothing emits
+        # .vectors and stage-0 links to 0 bytes (#137).
+        if(EBLDR_BOARD STREQUAL "cortex_r5")
+            enable_language(ASM)
+            set(_STAGE0_STARTUP "boards/cortex_r5/r5_stage0_startup.S")
+        else()
+            set(_STAGE0_STARTUP "stage0/reset_entry.c")
+        endif()
+
         if(EXISTS "${_LD_STAGE0}")
             add_executable(ebldr_stage0
-                stage0/reset_entry.c
+                ${_STAGE0_STARTUP}
                 stage0/hw_init_minimal.c
                 stage0/watchdog.c
                 stage0/recovery_entry.c
