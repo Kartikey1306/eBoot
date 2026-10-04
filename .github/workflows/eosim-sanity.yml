@@ -55,15 +55,10 @@ jobs:
             eosim --version
             exit 1
           }
-      # platforms/ is data, not package data: PLATFORMS_DIR resolves to
-      # <site-packages>/platforms while the wheel ships only
-      # eosim/platforms/__init__.py. Without this copy `eosim list` prints
-      # "Available platforms (0)" and exits 0 -- so the step named
-      # "Validate all platform configs" validated nothing and passed.
-      - name: Install platform data
-        run: |
-          SITE_PACKAGES=$(python -c "import eosim, os; print(os.path.dirname(os.path.dirname(eosim.__file__)))")
-          cp -r /tmp/EoSim/platforms "$SITE_PACKAGES/"
+      # v3.0.2+ ships the full platforms tree inside the package
+      # (eosim/platforms/, 150+ targets), so `pip install` already places
+      # it at <site-packages>/eosim/platforms -- no copy step needed.
+      # (The stale top-level-platforms copy was removed here.)
       - name: Validate all platform configs
         run: |
           eosim doctor
@@ -74,7 +69,7 @@ jobs:
           import os, sys
           from eosim.platforms import discover_platforms
           import eosim, pathlib
-          root = pathlib.Path(eosim.__file__).parent.parent / "platforms"
+          root = pathlib.Path(eosim.__file__).parent / "platforms"
           found = discover_platforms(str(root))
           print(f"discovered {len(found)} platforms under {root}")
           if not found:
@@ -108,10 +103,7 @@ jobs:
           git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} \
             https://github.com/embeddedos-org/EoSim.git /tmp/EoSim
           pip install /tmp/EoSim
-          # platforms/ is data, not package data, so `eosim list` reports
-          # zero platforms without it. Copy it from the same checkout.
-          SITE_PACKAGES=$(python -c "import eosim, os; print(os.path.dirname(os.path.dirname(eosim.__file__)))")
-          cp -r /tmp/EoSim/platforms "$SITE_PACKAGES/"
+          # (platforms ship in-package since v3.0.2; no copy needed)
       - name: Simulate ${{ matrix.platform }}
         run: |
           eosim run ${{ matrix.platform }} --headless --timeout 10
@@ -139,11 +131,7 @@ jobs:
       - name: Install EoSim
         run: |
           git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim && pip install /tmp/EoSim
-          SITE_PACKAGES=$(python -c "import eosim; import os; print(os.path.dirname(os.path.dirname(eosim.__file__)))")
-          # From the same pinned checkout. A second, unpinned clone here meant
-          # the package came from v${{ env.EOSIM_VERSION }} while platforms/
-          # came from whatever the default branch pointed at that morning.
-          cp -r /tmp/EoSim/platforms "$SITE_PACKAGES/"
+          # (platforms ship in-package since v3.0.2; no copy needed)
       - name: Boot guest and test EoSim inside
         run: |
           echo "=== Nested Guest: ${{ matrix.guest }} ==="
@@ -160,21 +148,18 @@ jobs:
         with:
           python-version: "3.12"
       # `eosim list` exits 0 with zero platforms, so "list && doctor" passed
-      # on both these runners while validating nothing. Copy platforms/ from
-      # the same pinned checkout and assert a non-zero count, as
-      # install-validate now does.
+      # on both these runners while validating nothing. Assert a non-zero
+      # platform count from the in-package tree, as install-validate does.
       - name: Test EoSim on Windows
         shell: bash
         run: |
           git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim && pip install /tmp/EoSim
-          SITE_PACKAGES=$(python -c "import eosim, os; print(os.path.dirname(os.path.dirname(eosim.__file__)))")
-          cp -r /tmp/EoSim/platforms "$SITE_PACKAGES/"
           eosim --version
           eosim doctor
           python -c "
           import pathlib, sys, eosim
           from eosim.platforms import discover_platforms
-          root = pathlib.Path(eosim.__file__).parent.parent / 'platforms'
+          root = pathlib.Path(eosim.__file__).parent / 'platforms'
           found = discover_platforms(str(root))
           print(f'discovered {len(found)} platforms')
           sys.exit(0 if found else 'no platform configs discovered')
@@ -193,14 +178,12 @@ jobs:
         shell: bash
         run: |
           git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim && pip install /tmp/EoSim
-          SITE_PACKAGES=$(python -c "import eosim, os; print(os.path.dirname(os.path.dirname(eosim.__file__)))")
-          cp -r /tmp/EoSim/platforms "$SITE_PACKAGES/"
           eosim --version
           eosim doctor
           python -c "
           import pathlib, sys, eosim
           from eosim.platforms import discover_platforms
-          root = pathlib.Path(eosim.__file__).parent.parent / 'platforms'
+          root = pathlib.Path(eosim.__file__).parent / 'platforms'
           found = discover_platforms(str(root))
           print(f'discovered {len(found)} platforms')
           sys.exit(0 if found else 'no platform configs discovered')
