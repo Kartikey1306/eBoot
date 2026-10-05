@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 env:
-  EOSIM_VERSION: "0.1.0"
+  EOSIM_VERSION: "3.0.2"
 
 permissions:
   contents: read
@@ -43,30 +43,22 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      # embeddedos-org/EoSim has no v0.1.0 release and publishes no wheel, so
-      # every one of these jobs died on a 404 at "Install EoSim" -- on master
-      # and on every branch, without ever reaching a simulation. ebuild hit the
-      # same wall and disabled the steps in its simulation-test.yml; same
-      # treatment here so the workflow reports honestly instead of gating on an
-      # artifact that does not exist. Restore these when EoSim ships a release.
-      # - name: Install EoSim
-      #   run: |
-      #     pip install "eosim @ https://github.com/embeddedos-org/EoSim/releases/download/v${{ env.EOSIM_VERSION }}/eosim-${{ env.EOSIM_VERSION }}-py3-none-any.whl"
-      #     SITE_PACKAGES=$(python -c "import eosim; import os; print(os.path.dirname(os.path.dirname(eosim.__file__)))")
-      #     git clone --depth 1 https://github.com/embeddedos-org/EoSim.git /tmp/eosim-data
-      #     cp -r /tmp/eosim-data/platforms "$SITE_PACKAGES/"
-      # - name: Validate platform
-      #   run: eosim info ${{ matrix.platform }}
-      # - name: Simulate ${{ matrix.platform }}
-      #   run: |
-      #     echo "=== EoSim: ${{ matrix.platform }} ==="
-      #     eosim run ${{ matrix.platform }} --headless --timeout 15
-      # - name: Run platform tests
-      #   run: eosim test ${{ matrix.platform }}
-      # - name: Collect artifacts
-      #   run: eosim artifact ${{ matrix.platform }}
-      - name: Skip simulation (EoSim release unavailable)
-        run: echo "EoSim ${{ env.EOSIM_VERSION }} is not published. Skipping ${{ matrix.platform }}."
+      # EoSim v3.0.2 is a real tag. No release ships a wheel, so install from
+      # a git checkout; platforms ship in-package since v3.0.2 (no copy needed).
+      - name: Install EoSim from source
+        run: |
+          git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim
+          pip install -e /tmp/EoSim
+      - name: Validate platform
+        run: eosim info ${{ matrix.platform }}
+      - name: Simulate ${{ matrix.platform }}
+        run: |
+          echo "=== EoSim: ${{ matrix.platform }} ==="
+          eosim run ${{ matrix.platform }} --headless --timeout 15
+      - name: Run platform tests
+        run: eosim test ${{ matrix.platform }}
+      - name: Collect artifacts
+        run: eosim artifact ${{ matrix.platform }}
 
   cross-platform:
     name: Cross-Platform (${{ matrix.os }})
@@ -80,14 +72,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      # - name: Install EoSim
-      #   run: pip install "eosim @ https://github.com/embeddedos-org/EoSim/releases/download/v${{ env.EOSIM_VERSION }}/eosim-${{ env.EOSIM_VERSION }}-py3-none-any.whl"
-      # - name: Validate all platforms
-      #   run: eosim list && eosim doctor
-      # - name: List platforms
-      #   run: eosim list
-      - name: Skip cross-platform (EoSim release unavailable)
-        run: echo "EoSim ${{ env.EOSIM_VERSION }} is not published. Skipping cross-platform checks."
+      - name: Install EoSim from source
+        run: |
+          git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim
+          pip install -e /tmp/EoSim
+      - name: Validate all platforms
+        run: eosim list && eosim doctor
+      - name: List platforms
+        run: eosim list
 
   sanity-gate:
     name: Simulation Gate
