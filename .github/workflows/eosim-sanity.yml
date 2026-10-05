@@ -105,13 +105,13 @@ jobs:
           pip install /tmp/EoSim
           # (platforms ship in-package since v3.0.2; no copy needed)
       - name: Simulate ${{ matrix.platform }}
-        # Two honest contracts, by engine:
-        # - native engine (v3.0.2+): `eosim run` without --firmware exits 2
-        #   with "NO FIRMWARE" (it no longer fakes a pass over zeroed memory).
-        # - qemu engine: KNOWN LIMITATION (embeddedos-org/EoSim#38) -- the
-        #   backend never executes qemu; without qemu installed it prints
-        #   "PASSED (dry run)" and exits 0. Assert that documented message
-        #   so the gate is deterministic until EoSim executes or fails honestly.
+        # Two honest contracts, by engine (EoSim 4db3434a fixed #38):
+        # - native engine: `eosim run` without --firmware exits 2 with
+        #   "NO FIRMWARE" (it no longer fakes a pass over zeroed memory).
+        # - qemu engine: qemu not installed -> "QEMU NOT INSTALLED", exit 2
+        #   (reported as SKIP; installing qemu in CI is tracked separately);
+        #   qemu installed -> the command actually executes and its exit code
+        #   propagates. The engine never reports PASSED without execution.
         # Real firmware execution needs a built image (eBoot#147).
         shell: bash
         run: |
@@ -121,9 +121,14 @@ jobs:
           set -e
           echo "$out"
           if echo "$out" | grep -q "via qemu"; then
-            echo "$out" | grep -q "PASSED (dry run)" || { echo "::error::expected the qemu dry-run message (EoSim#38)"; exit 1; }
-            [ "$code" -eq 0 ] || { echo "::error::expected exit 0, got $code"; exit 1; }
-            echo "${{ matrix.platform }}: PASSED (qemu dry-run; see EoSim#38)"
+            if echo "$out" | grep -q "QEMU NOT INSTALLED"; then
+              [ "$code" -eq 2 ] || { echo "::error::expected exit 2, got $code"; exit 1; }
+              echo "${{ matrix.platform }}: SKIP (qemu not installed)"
+            else
+              [ "$code" -eq 0 ] || { echo "::error::qemu executed but failed, exit $code"; exit 1; }
+              echo "$out" | grep -q "PASSED" || { echo "::error::expected the PASSED contract message"; exit 1; }
+              echo "${{ matrix.platform }}: PASSED (qemu executed)"
+            fi
           else
             echo "$out" | grep -q "NO FIRMWARE" || { echo "::error::expected the NO FIRMWARE contract message"; exit 1; }
             [ "$code" -eq 2 ] || { echo "::error::expected exit 2, got $code"; exit 1; }
