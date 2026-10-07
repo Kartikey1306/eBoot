@@ -42,7 +42,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install EoSim
-        run: git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim && pip install /tmp/EoSim
+        uses: embeddedos-org/.github/.github/actions/install-eosim@master
+        with:
+          version: ${{ env.EOSIM_VERSION }}
       - name: Verify installation
         run: |
           # Assert the installed package version matches the pinned tag.
@@ -189,10 +191,13 @@ jobs:
       # `eosim list` exits 0 with zero platforms, so "list && doctor" passed
       # on both these runners while validating nothing. Assert a non-zero
       # platform count from the in-package tree, as install-validate does.
+      - name: Install EoSim
+        uses: embeddedos-org/.github/.github/actions/install-eosim@master
+        with:
+          version: ${{ env.EOSIM_VERSION }}
       - name: Test EoSim on Windows
         shell: bash
         run: |
-          git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim && pip install /tmp/EoSim
           eosim --version
           eosim doctor
           python -c "
@@ -213,10 +218,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install EoSim
+        uses: embeddedos-org/.github/.github/actions/install-eosim@master
+        with:
+          version: ${{ env.EOSIM_VERSION }}
       - name: Test EoSim on macOS
         shell: bash
         run: |
-          git clone --depth 1 --branch v${{ env.EOSIM_VERSION }} https://github.com/embeddedos-org/EoSim.git /tmp/EoSim && pip install /tmp/EoSim
           eosim --version
           eosim doctor
           python -c "
